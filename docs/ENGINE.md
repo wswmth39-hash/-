@@ -98,6 +98,17 @@ WebSocket ─(platform/ws)→ feedTick(asset, ts, price)
 في المتصفح يبنيها `main.js` من `window`، وفي Node تبنيها الاختبارات.
 يمكن إنشاء أكثر من محرك في العملية نفسها دون أي تداخل بينها (اختبار C9).
 
+## إضافات v4 — طبقة الاستقبال
+
+```
+WebSocket الصفحة ─(platform/ws.js: حالة لكل اتصال، core/sio.js: تحليل Socket.IO)─→ handle(kind, data, connId)
+   ├─ stream → engine/feed.ingestTicks: core/feed.tickError (تحقق) ← كشف التكرار ← feedTick ← عدّادات لكل أصل
+   ├─ hist   → engine/feed.ingestHistory: تحقق أساسي ← loadHistory
+   └─ كل حدث → platform/discovery.observe (عند تفعيل الاستكشاف فقط)
+engine/feed.feedCheck (كل ثانية) ─→ core/feed.feedStatus ─→ emit('feed') عند التغيّر · emit('reloadAdvice')
+engine/feed.feedView ─→ viewmodel.feed ─→ بطاقة «اتصال المنصة وحالة البيانات»
+```
+
 ## ما لم يتغير عمدًا
 
 * **قواعد التحليل والقرار والتعلّم والمحاكاة:** متطابقة بايتًا ببايت مع v3.5 (الاختبار الذهبي G، 26 مقارنة).

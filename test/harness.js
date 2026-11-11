@@ -9,6 +9,7 @@ const ROOT = path.join(__dirname, '..');
 const FILES = {
   original: path.join(ROOT, 'original', 'wsnf_v3.3.user.js'),
   v35: path.join(ROOT, 'backup', 'wsnf_v3.5.user.js'),       // آخر نسخة قبل فصل المحرك (المرحلة C) — مرجع الاختبار الذهبي
+  v36: path.join(ROOT, 'backup', 'wsnf_v3.6.user.js'),       // قبل ترقية الاتصال (v4)
   current: path.join(ROOT, 'dist', 'wsnf.user.js')            // الناتج المبني من src/ (node build.js)
 };
 const target = () => FILES[process.env.WSNF_TARGET || 'current'] || process.env.WSNF_TARGET;
@@ -67,7 +68,7 @@ function load({ file = target(), store = {}, now = 1.7e12, platform = null, ui =
     },
     getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
     setInterval: () => 0, setTimeout: () => 0, clearTimeout() {}, clearInterval() {},
-    TextDecoder, Promise, JSON, Math, Date: DateC, Number, String, Object, Array, Set, Map, Error, RegExp, isFinite, parseFloat, Symbol,
+    TextDecoder, URL, Promise, JSON, Math, Date: DateC, Number, String, Object, Array, Set, Map, Error, RegExp, isFinite, parseFloat, Symbol,
     Blob: class { constructor(p) { this.p = p; } text() { return Promise.resolve(this.p.join('')); } }
   };
   ctx.window = ctx;

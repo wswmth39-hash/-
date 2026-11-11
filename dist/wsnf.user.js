@@ -391,6 +391,74 @@ function analyze(cs, deps) {
 }
 module.exports = { decide, falseSignals, noneR, analyze };
 },
+/* ---- core/feed.js ---- */
+"core/feed": function (module, exports, require) {
+'use strict';
+// النواة — التحقق من التيك قبل دخوله المحرك، وآلة حالات البيانات. دوال بحتة؛ الحالة تُمرَّر صراحةً.
+// المبدأ: لا نفترض أن البيانات المستقبلة كاملة أو صحيحة. ما لا يجتاز التحقق يُرفض ويُعدّ بسببه، ولا يُصحَّح بالتخمين.
+
+const ASSET_RE = /^[A-Za-z0-9_#.\-\/ ]{1,40}$/;
+
+// t: { asset, ts, p } · prev: آخر تيك مقبول لنفس الأصل { ts, p } أو null · opts: { nowSec, maxFutureS, maxJump, jumpWindowS }
+// يعيد '' للتيك الصالح أو سبب الرفض. (التكرار يُفحص منفصلًا: ليس خطأ بيانات بل إعادة إرسال.)
+function tickError(t, prev, opts) {
+  if (!t || typeof t.asset !== 'string' || !ASSET_RE.test(t.asset)) return 'اسم أصل غير صالح';
+  if (!Number.isFinite(t.ts)) return 'وقت غير رقمي';
+  if (!Number.isFinite(t.p)) return 'سعر غير رقمي';
+  if (!(t.p > 0)) return 'سعر غير موجب';
+  if (t.ts > 1e11) return 'وقت بوحدة غير متوقعة (مللي ثانية؟)'; // لا نحوّل تلقائيًا: لا نخمّن
+  if (t.ts < 1e9) return 'وقت غير منطقي (قبل 2001)';
+  if (opts && Number.isFinite(opts.nowSec) && t.ts - opts.nowSec > (opts.maxFutureS || 600)) return 'وقت في المستقبل';
+  if (prev && prev.p > 0 && Math.abs(t.ts - prev.ts) <= (opts && opts.jumpWindowS || 300)) {
+    const ch = Math.abs(t.p / prev.p - 1);
+    if (ch > (opts && opts.maxJump || .2)) return 'قفزة سعرية شاذة (' + Math.round(ch * 100) + '%)';
+  }
+  return '';
+}
+
+// كاشف التكرار: حلقة محدودة لكل أصل من مفاتيح (وقت|سعر). الذاكرة ثابتة مهما طال التشغيل.
+function createDedup(size = 256) {
+  const rings = new Map();
+  return {
+    seen(asset, ts, p) {
+      let r = rings.get(asset);
+      if (!r) { r = { keys: new Set(), order: [] }; rings.set(asset, r); }
+      const k = ts + '|' + p;
+      if (r.keys.has(k)) return true;
+      r.keys.add(k); r.order.push(k);
+      if (r.order.length > size) r.keys.delete(r.order.shift());
+      return false;
+    },
+    forget(asset) { rings.delete(asset); },
+    size() { let n = 0; for (const r of rings.values()) n += r.order.length; return n; }
+  };
+}
+
+// آلة حالات البيانات. «حية» لا تُعطى إلا بوجود اتصال مفتوح وتيك صالح حديث للأصل الحالي — الاتصال وحده لا يكفي.
+// x: { openConns, connecting, everOpen, lastOpenAt, lastCloseAt, lastValidAt, errorBurst, now }
+// t: { liveMs, delayMs, unavailableMs, waitMs }
+const FEED_LABEL = {
+  disconnected: 'غير متصل', connecting: 'جارٍ الاتصال', connected: 'متصل — بانتظار البيانات', live: 'بيانات حية',
+  delayed: 'بيانات متأخرة', stale: 'بيانات قديمة', unavailable: 'البيانات غير متاحة', error: 'خطأ في البيانات'
+};
+function feedStatus(x, t) {
+  if (!x.openConns) {
+    if (x.connecting) return 'connecting';
+    return 'disconnected';
+  }
+  const age = x.lastValidAt ? x.now - x.lastValidAt : null;
+  if (x.errorBurst && (age === null || age > t.delayMs)) return 'error';
+  if (age === null || x.lastValidAt < x.lastOpenAt - t.delayMs) {
+    // اتصال مفتوح لم يصلنا منه تيك صالح بعد
+    return x.now - x.lastOpenAt <= t.waitMs ? 'connected' : 'unavailable';
+  }
+  if (age <= t.liveMs) return 'live';
+  if (age <= t.delayMs) return 'delayed';
+  if (age <= t.unavailableMs) return 'stale';
+  return 'unavailable';
+}
+module.exports = { ASSET_RE, tickError, createDedup, FEED_LABEL, feedStatus };
+},
 /* ---- core/indicators.js ---- */
 "core/indicators": function (module, exports, require) {
 'use strict';
@@ -831,6 +899,67 @@ function closedWindowError(cs, tf, asOf) {
 }
 module.exports = { verifyCandles, dataQuality, liveBlock, closedWindowError };
 },
+/* ---- core/sio.js ---- */
+"core/sio": function (module, exports, require) {
+'use strict';
+// النواة — تحليل إطارات Engine.IO/Socket.IO (بحت، بلا حالة).
+// يطابق البروتوكول المنشور لـ Socket.IO v4 (https://socket.io/docs/v4/socket-io-protocol/):
+//   إطار Engine.IO نصي: رقم النوع أولًا — 0 open، 1 close، 2 ping، 3 pong، 4 message، 5 upgrade، 6 noop
+//   داخل message (4): نوع Socket.IO — 0 CONNECT، 1 DISCONNECT، 2 EVENT، 3 ACK، 4 CONNECT_ERROR، 5 BINARY_EVENT، 6 BINARY_ACK
+//   ثم (لـ 5/6) عدد المرفقات الثنائية متبوعًا بـ «-»، ثم namespace اختياري يبدأ بـ «/» وينتهي بـ «,»، ثم رقم ack اختياري، ثم JSON.
+//   المرفقات الثنائية تصل بعدها كإطارات ثنائية منفصلة بالترتيب، وتحل محل { _placeholder: true, num: i }.
+// لا نفترض أي اسم حدث هنا؛ تفسير الأحداث في طبقة المنصة.
+
+const EIO = { 0: 'open', 1: 'close', 2: 'ping', 3: 'pong', 4: 'message', 5: 'upgrade', 6: 'noop' };
+const SIO = { 0: 'connect', 1: 'disconnect', 2: 'event', 3: 'ack', 4: 'connect_error', 5: 'binary_event', 6: 'binary_ack' };
+
+// يعيد { eio, sio?, attachments, nsp, id, data?, error? }. لا يرمي أبدًا: أي خلل يُعاد في error ليُسجَّل.
+function parseText(s) {
+  if (typeof s !== 'string' || !s.length) return { eio: 'invalid', error: 'إطار فارغ' };
+  const eio = EIO[s[0]];
+  if (!eio) return { eio: 'invalid', error: 'نوع Engine.IO غير معروف: ' + s[0] };
+  if (eio !== 'message') return { eio, raw: s.length > 1 ? s.slice(1, 200) : '' };
+  const t = s[1], sio = SIO[t];
+  if (!sio) return { eio, error: 'نوع Socket.IO غير معروف: ' + t };
+  let i = 2, attachments = 0, nsp = '/', id = null;
+  if (sio === 'binary_event' || sio === 'binary_ack') {
+    const m = /^(\d+)-/.exec(s.slice(i));
+    if (!m) return { eio, sio, error: 'عدد المرفقات مفقود' };
+    attachments = +m[1]; i += m[0].length;
+  }
+  if (s[i] === '/') {
+    const c = s.indexOf(',', i);
+    if (c < 0) { nsp = s.slice(i); i = s.length; } else { nsp = s.slice(i, c); i = c + 1; }
+  }
+  const d = /^\d+/.exec(s.slice(i));
+  if (d) { id = +d[0]; i += d[0].length; }
+  const body = s.slice(i);
+  const out = { eio, sio, attachments, nsp, id };
+  if (!body.length) return out;
+  try { out.data = JSON.parse(body); } catch (e) { out.error = 'JSON غير صالح: ' + String(e && e.message || e).slice(0, 80); }
+  return out;
+}
+
+// استبدال العناصر النائبة بالمرفقات (عميق). المرفق المفقود خطأ لا يُخمَّن.
+function fillPlaceholders(x, atts) {
+  if (Array.isArray(x)) return x.map(v => fillPlaceholders(v, atts));
+  if (x && typeof x === 'object') {
+    if (x._placeholder === true && Number.isInteger(x.num)) {
+      if (!(x.num in atts)) throw new Error('مرفق ثنائي مفقود رقم ' + x.num);
+      return atts[x.num];
+    }
+    const o = {};
+    for (const k in x) o[k] = fillPlaceholders(x[k], atts);
+    return o;
+  }
+  return x;
+}
+
+// حدث Socket.IO = مصفوفة [اسم، ...وسائط]
+const eventName = data => (Array.isArray(data) && typeof data[0] === 'string') ? data[0] : null;
+
+module.exports = { EIO, SIO, parseText, fillPlaceholders, eventName };
+},
 /* ---- core/stats.js ---- */
 "core/stats": function (module, exports, require) {
 'use strict';
@@ -1167,11 +1296,22 @@ module.exports = function install(E) {
     stratErrAt[k] = now;
     logErr('STRAT_ERR', k + ': ' + String(e && e.message || e));
   }
+  // v4: حد للذاكرة — لا نحتفظ بشموع أكثر من CFG.maxAssets أصلًا في وقت واحد (كانت 5000 شمعة لكل أصل فُتح بلا حد).
+  // يُحذف الأقدم تحديثًا، ولا يُحذف أبدًا: الأصل الحالي، المقفول، أو صاحب صفقة افتراضية مفتوحة/معلّقة.
+  function evictAssets(incoming) {
+    const keep = new Set([incoming, S.cur, S.lock, S.open && S.open.asset, S.pending && S.pending.asset]);
+    const ks = Object.keys(S.candles).filter(a => !keep.has(a)).sort((a, b) => (S.lastTs[a] || 0) - (S.lastTs[b] || 0));
+    while (Object.keys(S.candles).length >= CFG.maxAssets && ks.length) {
+      const a = ks.shift();
+      delete S.candles[a]; delete S.P[a]; delete S.sigBy[a]; delete S.dq[a]; delete S.SH[a]; delete S.sdh[a];
+    }
+  }
   // ================= الشموع من التيك =================
   function feedTick(asset, ts, p) {
     if (!Number.isFinite(ts) || !Number.isFinite(p) || p <= 0) return;
     if (S.lock && asset !== S.lock) return;
     const t = Math.floor(ts / CFG.tf) * CFG.tf;
+    if (!S.candles[asset]) evictAssets(asset);
     const arr = S.candles[asset] || (S.candles[asset] = []);
     const c = arr[arr.length - 1];
     if (c && c.t > t) return; // تيك قديم/خارج الترتيب
@@ -1343,6 +1483,182 @@ module.exports = function install(E) {
   E.provide({ payoutOf, BE, BEA, AK, tfOfKey, getAK, getA, stratErr, feedTick, onClose, watchdog, onWsDown, setTf, resetLearning, analyzeWindow, loadHistory, connOpen, connLost });
 };
 },
+/* ---- engine/feed.js ---- */
+"engine/feed": function (module, exports, require) {
+'use strict';
+// المحرك — مراقب تغذية البيانات: كل تيك من المنصة يمر من هنا قبل feedTick.
+//   1) تحقق (core/feed.tickError) ← المرفوض يُعدّ بسببه ولا يدخل المحرك
+//   2) كشف التكرار (حلقة محدودة لكل أصل) ← التيك المعاد إرساله يُتجاهل ويُعدّ
+//   3) عدّادات لكل اتصال (رسائل، أحجام، آخر رسالة، أحداث معروفة/غير معروفة، أخطاء تحليل)
+//   4) حالة البيانات (core/feed.feedStatus) تُحسب كل ثانية وتُصدر حدث 'feed' عند تغيّرها
+// لا يرسل شيئًا للمنصة إطلاقًا.
+const { tickError, createDedup, feedStatus, FEED_LABEL } = require('../core/feed');
+
+module.exports = function install(E) {
+  const { S, CFG } = E, clock = E.clock;
+  const [feedTick, loadHistory, connOpen, connLost, logErr] = E.use('feedTick', 'loadHistory', 'connOpen', 'connLost', 'logErr');
+  const dedup = createDedup(256);
+  const F = E.feed = {
+    conns: {}, nextId: 1,
+    ticks: { rx: 0, ok: 0, dup: 0, rej: 0, reasons: {} },
+    hist: { loads: 0, rx: 0, ok: 0, rej: 0, reasons: {} },
+    perAsset: {},             // asset → { at (ساعة الجهاز), ts (وقت المنصة), p, n }
+    candles: 0, reconnects: 0, downSince: 0, downMs: 0, everOpen: false, lastOpenAt: 0, lastCloseAt: 0,
+    msgs: 0, bytes: 0, known: {}, unknown: {}, parseErrors: [], errAt: {},
+    status: 'disconnected', statusSince: clock(), lastAsset: null, assetChanges: 0, reloadAdvice: false, history: []
+  };
+  const bump = (o, k) => { o[k] = (o[k] || 0) + 1; };
+  const openCount = () => Object.values(F.conns).filter(c => c.state === 'open').length;
+  const connectingCount = () => Object.values(F.conns).filter(c => c.state === 'connecting').length;
+
+  // ---- الاتصالات ----
+  function connCreated(host) {
+    const id = F.nextId++;
+    F.conns[id] = { id, host: String(host || '').slice(0, 80), state: 'connecting', createdAt: clock(), openedAt: 0, closedAt: 0, msgs: 0, bytes: 0, lastMsgAt: 0, events: 0, errors: 0 };
+    pruneConns();
+    return id;
+  }
+  function connOpened(id) {
+    const c = F.conns[id]; if (!c) return;
+    const now = clock(), wasDown = F.everOpen && openCount() === 0;
+    c.state = 'open'; c.openedAt = now;
+    if (wasDown) { F.reconnects++; if (F.downSince) F.downMs += now - F.downSince; }
+    F.downSince = 0; F.everOpen = true; F.lastOpenAt = now; F.reloadAdvice = false;
+    connOpen();
+  }
+  // يعيد true إن كان هذا آخر اتصال مفتوح (أي انقطاع فعلي)
+  function connClosed(id) {
+    const c = F.conns[id]; if (!c) return false;
+    const was = c.state === 'open';
+    c.state = 'closed'; c.closedAt = clock();
+    if (!was || openCount()) return false;
+    F.downSince = F.lastCloseAt = clock();
+    connLost();
+    return true;
+  }
+  // لا نحتفظ إلا بآخر 20 اتصالًا مغلقًا (حد للذاكرة)
+  function pruneConns() {
+    const closed = Object.values(F.conns).filter(c => c.state === 'closed').sort((a, b) => a.closedAt - b.closedAt);
+    while (closed.length > 20) delete F.conns[closed.shift().id];
+  }
+  function onMessage(id, bytes) {
+    const c = F.conns[id], now = clock();
+    F.msgs++; F.bytes += bytes || 0;
+    if (c) { c.msgs++; c.bytes += bytes || 0; c.lastMsgAt = now; }
+  }
+  function onEvent(id, name, known) {
+    const c = F.conns[id]; if (c) c.events++;
+    const key = String(name).slice(0, 60);
+    bump(known ? F.known : F.unknown, key);
+    if (!known && Object.keys(F.unknown).length > 200) delete F.unknown[Object.keys(F.unknown)[0]];
+  }
+  // خطأ تحليل: يُسجَّل دائمًا في العدّاد، وفي سجل الأخطاء مرة كل 10 ث لكل سبب (لا إغراق)
+  function parseError(id, why) {
+    const c = F.conns[id], now = clock();
+    if (c) c.errors++;
+    F.parseErrors.push({ at: now, conn: id || 0, why: String(why).slice(0, 120) });
+    if (F.parseErrors.length > 50) F.parseErrors.shift();
+    const k = String(why).slice(0, 40);
+    if (!F.errAt[k] || now - F.errAt[k] > 1e4) { F.errAt[k] = now; logErr('WS_PARSE', String(why).slice(0, 160)); }
+  }
+
+  // ---- التيكات ----
+  function ingestTicks(id, list) {
+    if (!Array.isArray(list)) { parseError(id, 'updateStream: الحمولة ليست مصفوفة'); return 0; }
+    let ok = 0;
+    for (const x of list) {
+      F.ticks.rx++;
+      if (!Array.isArray(x) || x.length < 3) { F.ticks.rej++; bump(F.ticks.reasons, 'بنية تيك غير متوقعة'); continue; }
+      const t = { asset: String(x[0]), ts: +x[1], p: +x[2] }, pa = F.perAsset[t.asset] || null;
+      const why = tickError(t, pa, { nowSec: clock() / 1000, maxFutureS: CFG.maxFutureS, maxJump: CFG.maxPriceJump, jumpWindowS: 300 });
+      if (why) { F.ticks.rej++; bump(F.ticks.reasons, why); continue; }
+      if (dedup.seen(t.asset, t.ts, t.p)) { F.ticks.dup++; continue; }
+      const before = S.cur;
+      feedTick(t.asset, t.ts, t.p);
+      // قد يرفض المحرك التيك (أصل غير مقفول، أقدم من الشمعة الحالية): نعدّه صالحًا فقط إن دخل فعلًا
+      if (S.lastTs[t.asset] !== t.ts) { F.ticks.rej++; bump(F.ticks.reasons, S.lock && t.asset !== S.lock ? 'أصل غير المقفول' : 'تيك أقدم من الشمعة الحالية'); continue; }
+      F.ticks.ok++; ok++;
+      const now = clock(), r = F.perAsset[t.asset] || (F.perAsset[t.asset] = { at: 0, ts: 0, p: 0, n: 0 });
+      r.at = now; r.ts = t.ts; r.p = t.p; r.n++;
+      if (before !== S.cur && S.cur === t.asset) {
+        F.assetChanges++;
+        if (F.lastAsset !== null) E.emit('asset', { from: F.lastAsset, to: t.asset });
+        F.lastAsset = t.asset;
+      }
+    }
+    prunePerAsset();
+    return ok;
+  }
+  function prunePerAsset() {
+    const ks = Object.keys(F.perAsset);
+    if (ks.length <= 50) return;
+    ks.sort((a, b) => F.perAsset[a].at - F.perAsset[b].at).slice(0, ks.length - 50).forEach(k => { delete F.perAsset[k]; dedup.forget(k); });
+  }
+  // التاريخ: يُرفض منه ما لا يجتاز التحقق الأساسي (أنواع، وحدة الوقت). لا يُطبَّق كشف التكرار: التحميل يعيد البناء من الصفر.
+  function ingestHistory(id, asset, list) {
+    if (typeof asset !== 'string' || !Array.isArray(list)) { parseError(id, 'updateHistory: بنية غير متوقعة'); return 0; }
+    F.hist.loads++;
+    const ok = [];
+    for (const x of list) {
+      F.hist.rx++;
+      const t = Array.isArray(x) ? { asset, ts: +x[0], p: +x[1] } : null;
+      const why = t ? tickError(t, null, null) : 'بنية غير متوقعة';
+      if (why) { F.hist.rej++; bump(F.hist.reasons, why); continue; }
+      ok.push(x);
+    }
+    F.hist.ok += ok.length;
+    loadHistory(asset, ok);
+    // آخر تيكات التاريخ تدخل كاشف التكرار: إن أعادت المنصة بثها حيًا لا تُحسب مرتين
+    dedup.forget(asset);
+    ok.slice(-256).forEach(x => dedup.seen(asset, +x[0], +x[1]));
+    return ok.length;
+  }
+  E.on('candle', x => { if (x.live) F.candles++; });
+
+  // ---- الحالة ----
+  const TH = () => ({ liveMs: CFG.feedLiveMs, delayMs: CFG.maxTickAgeMs, unavailableMs: CFG.feedUnavailableMs, waitMs: CFG.feedWaitMs });
+  function computeStatus(now = clock()) {
+    const cur = S.cur, pa = cur ? F.perAsset[cur] : null;
+    const recentErr = F.parseErrors.filter(e => now - e.at < 6e4).length;
+    return feedStatus({ openConns: openCount(), connecting: connectingCount(), everOpen: F.everOpen, lastOpenAt: F.lastOpenAt, lastCloseAt: F.lastCloseAt,
+      lastValidAt: pa ? pa.at : 0, errorBurst: recentErr >= 5, now }, TH());
+  }
+  // يُستدعى كل ثانية (المؤقت في main): يُحدّث الحالة المخزنة ويُصدر حدثًا عند التغيّر
+  function feedCheck() {
+    const now = clock(), st = computeStatus(now);
+    if (st !== F.status) {
+      const from = F.status;
+      F.status = st; F.statusSince = now;
+      F.history.push({ at: now, from, to: st }); if (F.history.length > 100) F.history.shift();
+      E.emit('feed', { from, to: st, label: FEED_LABEL[st] });
+    }
+    if (!F.reloadAdvice && F.downSince && now - F.downSince > CFG.reloadAdviceMs) {
+      F.reloadAdvice = true;
+      logErr('WS_RELOAD', 'لم تُعِد المنصة الاتصال منذ ' + Math.round((now - F.downSince) / 1000) + ' ث: أعد تحميل الصفحة');
+      E.emit('reloadAdvice', { since: F.downSince });
+    }
+    return st;
+  }
+  // للعرض: نسخة بلا أي تعديل للحالة
+  function feedView() {
+    const now = clock(), st = computeStatus(now), cur = S.cur, pa = cur ? F.perAsset[cur] : null;
+    const lag = pa && pa.ts ? Math.round(pa.at / 1000 - pa.ts) : null;
+    return {
+      status: st, label: FEED_LABEL[st], since: F.status === st ? F.statusSince : now,
+      // source: مصدر البيانات — اتصال المنصة في الصفحة (تترجمه الواجهة إلى نص عربي)
+      source: 'platform-ws', asset: cur, lastPrice: pa ? pa.p : null, lastTs: pa ? pa.ts : null,
+      lastAt: pa ? pa.at : null, ageMs: pa ? now - pa.at : null, lagS: lag,
+      ticks: { ...F.ticks, reasons: { ...F.ticks.reasons } }, hist: { ...F.hist, reasons: { ...F.hist.reasons } }, candles: F.candles,
+      conns: Object.values(F.conns).map(c => ({ ...c })), open: openCount(), reconnects: F.reconnects,
+      downMs: F.downMs + (F.downSince ? now - F.downSince : 0), msgs: F.msgs, bytes: F.bytes,
+      known: { ...F.known }, unknown: { ...F.unknown }, parseErrors: F.parseErrors.slice(-20).map(e => ({ ...e })),
+      assets: Object.keys(F.perAsset).map(a => ({ a, ...F.perAsset[a], ageMs: now - F.perAsset[a].at })).sort((x, y) => y.at - x.at),
+      assetChanges: F.assetChanges, reloadAdvice: F.reloadAdvice, history: F.history.slice(-20).map(h => ({ ...h }))
+    };
+  }
+  E.provide({ connCreated, connOpened, connClosed, onMessage, onEvent, parseError, ingestTicks, ingestHistory, feedCheck, feedView, computeStatus });
+};
+},
 /* ---- engine/index.js ---- */
 "engine/index": function (module, exports, require) {
 'use strict';
@@ -1364,6 +1680,7 @@ function createEngine(env) {
   require('./paper')(E);
   require('./lab')(E);
   require('./engine')(E);
+  require('./feed')(E);
   require('./viewmodel')(E);
   require('./commands')(E);
   require('../recorder/recorder')(E);
@@ -1852,7 +2169,7 @@ module.exports = function install(E) {
 // المفاتيح والإصدار لم تتغير عن v3.5: لا ترحيل بيانات في المرحلة C (انظر docs/ENGINE.md).
 const SIM_ONLY = true;
 const VERSION = 5;
-const SCRIPT_VERSION = '3.6.0';
+const SCRIPT_VERSION = '4.0.0-dev';
 const KEYS = Object.freeze({
   LIVE: 'wsnf33s_live', LOG: 'wsnf33s_log', UI: 'wsnf33s_ui', META: 'wsnf33s_meta', ERR: 'wsnf33s_err', CFG: 'wsnf33s_cfg',
   STATE: 'wsnf33s_state', SV: 'wsnf33s_sv', JOURNAL: 'wsnf33s_journal', RECCFG: 'wsnf33s_rec_cfg'
@@ -1868,7 +2185,9 @@ function createState() {
     gateZ: 2.5, zStrat: 2.3, prior: 20, recentN: 40, edgeTol: .15,
     maxTickAgeMs: 8000, maxDriftAtr: 1, confirmMs: 4000, lateTolS: 5, staleRestMs: 12e4, maxUnk: 3, maxFail: 3,
     contigN: 30, payoutBy: {},
-    recMaxPerSeries: 500000, recMaxGapFrac: .5
+    recMaxPerSeries: 500000, recMaxGapFrac: .5,
+    // v4: تغذية البيانات — «حية» حتى 3 ث من آخر تيك صالح، «متأخرة» حتى maxTickAgeMs، «قديمة» حتى دقيقة، ثم «غير متاحة»
+    feedLiveMs: 3000, feedUnavailableMs: 60000, feedWaitMs: 15000, maxPriceJump: .2, maxFutureS: 600, reloadAdviceMs: 60000, maxAssets: 8
   };
   const S = {
     candles: {}, P: {}, A: {}, sigBy: {}, lastTs: {},
@@ -2057,7 +2376,9 @@ module.exports = function install(E) {
   // إعدادات تحتاجها الواجهة عند البناء فقط
   function settings() { return { tf: CFG.tf, minConf: CFG.minConf, payout: CFG.payout, payoutCur: payoutOf(S.cur), beCur: BE(S.cur), cur: S.cur, lock: S.lock }; }
 
-  E.provide({ view, lab, recorder, chart, settings, activeCheck, norm });
+  // حالة التغذية: نسخة من مراقب البيانات (engine/feed.js) دون تعديل
+  const feed = () => E.fn.feedView();
+  E.provide({ view, lab, recorder, chart, settings, feed, activeCheck, norm });
 };
 module.exports.activeCheck = activeCheck;
 module.exports.norm = norm;
@@ -2071,15 +2392,19 @@ const { createEngine, startEngine } = require('./engine/index');
 const { SIM_ONLY, SCRIPT_VERSION } = require('./engine/state');
 const { createHandler, installSocketTap } = require('./platform/ws');
 const { readShownAsset, downloadText } = require('./platform/dom');
+const { createDiscovery } = require('./platform/discovery');
 const { buildUI } = require('./ui/ui');
 const core = {
   stats: require('./core/stats'), indicators: require('./core/indicators'), strategies: require('./core/strategies'),
   quality: require('./core/quality'), context: require('./core/context'), decision: require('./core/decision'), catalog: require('./core/catalog'),
-  format: require('./recorder/format')
+  format: require('./recorder/format'), sio: require('./core/sio'), feed: require('./core/feed')
 };
 
 const win = window;
 const TEST = win.__WSNF_TEST === true;
+// حارس الحقن المزدوج: إن حُقن السكربت مرتين في نفس الصفحة لا يُنشأ محرك ثانٍ ولا تتكرر المستمعات ولا يُلَف WebSocket مرتين
+if (win.__WSNF_RUNNING) { try { win.console.warn('[wsnf] السكربت يعمل مسبقًا في هذه الصفحة؛ تم تجاهل الحقن الثاني'); } catch (e) {} return; }
+Object.defineProperty(win, '__WSNF_RUNNING', { value: true });
 let idbf = null;
 try { idbf = win.indexedDB || null; } catch (e) { idbf = null; }
 const env = {
@@ -2098,11 +2423,12 @@ const flushNow = () => { try { F.saveAll(); } catch (e) {} try { F.recFlush(); }
 win.addEventListener('beforeunload', flushNow);
 win.addEventListener('pagehide', flushNow);
 try { document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushNow(); }); } catch (e) {}
-setInterval(() => { try { F.watchdog(); } catch (err) {} }, 1000);
+setInterval(() => { try { F.watchdog(); } catch (err) {} try { F.feedCheck(); } catch (err) {} }, 1000);
 setInterval(() => { try { F.recFlush(); } catch (err) {} }, 5000);
 
 const handle = createHandler(E);
-installSocketTap(win, E, handle, { setTimeout: (f, ms) => setTimeout(f, ms), clearTimeout: t => clearTimeout(t) });
+const discovery = createDiscovery({ clock: () => Date.now() });
+const tapped = installSocketTap(win, E, handle, { setTimeout: (f, ms) => setTimeout(f, ms), clearTimeout: t => clearTimeout(t) }, discovery);
 startEngine(E);
 
 const readShown = () => readShownAsset(document);
@@ -2118,10 +2444,11 @@ function diagnostics() {
 // كل ما تراه الواجهة من المحرك
 const app = {
   win, doc: document,
-  vm: { view: F.view, lab: F.lab, recorder: F.recorder, chart: F.chart, settings: F.settings },
+  vm: { view: F.view, lab: F.lab, recorder: F.recorder, chart: F.chart, settings: F.settings, feed: F.feed },
   cmd: E.cmd,
   rec: { setOn: F.recSetOn, exportFile: F.recExport, importFile: F.recImport, scanGaps: F.recScanGaps, clear: F.recClear },
-  on: E.on,
+  on: E.on, tapped,
+  discovery: { start: () => discovery.start(), stop: () => discovery.stop('إيقاف يدوي'), report: () => discovery.report({ version: SCRIPT_VERSION, feed: F.feedView() }), status: () => { const r = discovery.report(); return { on: r.running, startedAt: r.startedAt ? Date.parse(r.startedAt) : 0, messages: r.messages, types: Object.keys(r.events).length, stopReason: r.stopReason }; } },
   readShown, diagnostics,
   downloadText: (name, text, mime) => downloadText(win, name, text, mime),
   prefs: { get: F.LSget, set: F.LSset }
@@ -2138,7 +2465,8 @@ if (TEST) {
   const peek = a => S.A[F.AK(a)] || null;
   win.__WSNF25 = {
     SIM_ONLY, S, CFG, E, core, app, get ui() { return uiHandle; },
-    on: E.on, cmd: E.cmd,
+    on: E.on, cmd: E.cmd, discovery, tapped,
+    feedView: F.feedView, feedCheck: F.feedCheck, computeStatus: F.computeStatus, ingestTicks: F.ingestTicks, ingestHistory: F.ingestHistory, feedState: () => E.feed,
     feedTick: F.feedTick, onClose: F.onClose, handle, getA: F.getA, AK: F.AK,
     // تحليل نافذة «كما في لحظة إغلاق آخر شمعة فيها» (asOf صريح)
     analyze: (cs, A, asset) => F.analyzeWindow(cs, A, asset, cs.length ? cs[cs.length - 1].t + CFG.tf : undefined),
@@ -2172,6 +2500,88 @@ if (TEST) {
   };
 }
 },
+/* ---- platform/discovery.js ---- */
+"platform/discovery": function (module, exports, require) {
+'use strict';
+// طبقة المنصة — «استكشاف بيانات المنصة»: أداة تشخيص يشغّلها المستخدم على صفحته الحقيقية لمعرفة ما ترسله المنصة فعلًا،
+// بدل تخمين أسماء الأحداث وصيغها. تعمل فقط عند تفعيلها يدويًا، ولمدة محدودة، وتسجّل:
+//   - أسماء الأحداث وعددها وهل وصلت كنص أو كمرفق ثنائي
+//   - «هيكل» كل حدث: الأنواع والمفاتيح وأطوال المصفوفات فقط، دون القيم
+//   - عيّنات قيم مختصرة فقط لأحداث يبدو اسمها سوقيًا وليس في هيكلها أي مفتاح حساس
+//   - مضيف اتصال WebSocket فقط (بلا مسار ولا معاملات: قد تحوي رموز جلسة)
+// لا تسجّل أبدًا قيم أي حدث فيه مفتاح يوحي بالحساب أو الهوية (رصيد، بريد، مستخدم، رمز، جلسة، ...). الرسائل الصادرة لا تُعترض أصلًا.
+
+const SENSITIVE = /(bal|amount|sum|email|mail|user|login|token|auth|pass|session|sid|uid|phone|account|wallet|deposit|withdraw|card|\bip\b|country|currency|profit|bonus|demo|real|name|secret|key|hash|cookie)/i;
+const MARKET = /(stream|history|candle|tick|quote|price|chart|period|ohlc)/i;
+
+function skeleton(v, depth = 0) {
+  if (depth > 5) return '…';
+  if (v === null) return 'null';
+  if (Array.isArray(v)) return v.length ? ['arr', v.length, skeleton(v[0], depth + 1)] : ['arr', 0];
+  const t = typeof v;
+  if (t === 'number') return 'num';
+  if (t === 'string') return 'str';
+  if (t === 'boolean') return 'bool';
+  if (t === 'object') {
+    const o = {};
+    Object.keys(v).slice(0, 40).forEach(k => { o[k] = skeleton(v[k], depth + 1); });
+    return o;
+  }
+  return t;
+}
+function sensitiveKeys(sk, out = []) {
+  if (Array.isArray(sk)) { if (sk[2] !== undefined) sensitiveKeys(sk[2], out); return out; }
+  if (sk && typeof sk === 'object') for (const k in sk) { if (SENSITIVE.test(k)) out.push(k); sensitiveKeys(sk[k], out); }
+  return out;
+}
+// عيّنة مختصرة: الأرقام كما هي، النصوص فقط إن بدت رمز أصل، أول 5 عناصر من كل مصفوفة
+function sample(v, depth = 0) {
+  if (depth > 4) return '…';
+  if (v === null || typeof v === 'number' || typeof v === 'boolean') return v;
+  if (typeof v === 'string') return /^[A-Za-z0-9_#.\-\/ ]{1,24}$/.test(v) ? v : '<نص:' + v.length + '>';
+  if (Array.isArray(v)) { const a = v.slice(0, 5).map(x => sample(x, depth + 1)); if (v.length > 5) a.push('…(+' + (v.length - 5) + ')'); return a; }
+  if (typeof v === 'object') { const o = {}; Object.keys(v).slice(0, 20).forEach(k => { o[k] = SENSITIVE.test(k) ? '<محجوب>' : sample(v[k], depth + 1); }); return o; }
+  return '<' + typeof v + '>';
+}
+const hostOf = url => { try { return new URL(String(url)).host; } catch (e) { return '<غير معروف>'; } };
+
+function createDiscovery({ clock, maxMs = 10 * 60e3, maxMsgs = 20000, maxEvents = 150 } = {}) {
+  const D = { on: false, startedAt: 0, stoppedAt: 0, why: '', msgs: 0, events: {}, frames: {}, hosts: {} };
+  const stop = why => { if (D.on) { D.on = false; D.stoppedAt = clock(); D.why = why || 'إيقاف يدوي'; } };
+  return {
+    start() { Object.assign(D, { on: true, startedAt: clock(), stoppedAt: 0, why: '', msgs: 0, events: {}, frames: {}, hosts: {} }); },
+    stop,
+    get on() { return D.on; },
+    host(url) { if (D.on) { const h = hostOf(url); D.hosts[h] = (D.hosts[h] || 0) + 1; } },
+    frame(kind) { if (D.on) D.frames[kind] = (D.frames[kind] || 0) + 1; },
+    observe(name, args, meta = {}) {
+      if (!D.on) return;
+      if (clock() - D.startedAt > maxMs) return stop('انتهت المدة (' + Math.round(maxMs / 60000) + ' د)');
+      if (++D.msgs > maxMsgs) return stop('بلغ الحد (' + maxMsgs + ' رسالة)');
+      const key = String(name).slice(0, 60);
+      let ev = D.events[key];
+      if (!ev) { if (Object.keys(D.events).length >= maxEvents) return; ev = D.events[key] = { n: 0, binary: 0, firstAt: clock(), lastAt: 0, skeletons: [], samples: [], sensitive: [] }; }
+      ev.n++; ev.lastAt = clock(); if (meta.binary) ev.binary++;
+      const sk = skeleton(args), sj = JSON.stringify(sk);
+      if (ev.skeletons.length < 3 && !ev.skeletons.includes(sj)) ev.skeletons.push(sj);
+      const sens = sensitiveKeys(sk);
+      sens.forEach(k => { if (!ev.sensitive.includes(k) && ev.sensitive.length < 20) ev.sensitive.push(k); });
+      if (!sens.length && MARKET.test(key) && ev.samples.length < 3) ev.samples.push(sample(args));
+    },
+    report(extra = {}) {
+      return {
+        type: 'wsnf-platform-discovery', schema: 1, startedAt: D.startedAt ? new Date(D.startedAt).toISOString() : null,
+        durationS: D.startedAt ? Math.round(((D.on ? clock() : D.stoppedAt) - D.startedAt) / 1000) : 0, running: D.on, stopReason: D.why,
+        note: 'أسماء الأحداث وهياكلها فقط. لا قيم لأي حدث فيه مفتاح حساس، ولا رسائل صادرة، ولا عناوين كاملة. راجع الملف قبل مشاركته.',
+        messages: D.msgs, hosts: { ...D.hosts }, frames: { ...D.frames },
+        events: Object.fromEntries(Object.entries(D.events).sort((a, b) => b[1].n - a[1].n).map(([k, e]) => [k, { ...e, skeletons: e.skeletons.map(s => JSON.parse(s)) }])),
+        ...extra
+      };
+    }
+  };
+}
+module.exports = { createDiscovery, skeleton, sensitiveKeys, sample, hostOf, SENSITIVE, MARKET };
+},
 /* ---- platform/dom.js ---- */
 "platform/dom": function (module, exports, require) {
 'use strict';
@@ -2195,83 +2605,124 @@ module.exports = { readShownAsset, downloadText, ASSET_SEL };
 /* ---- platform/ws.js ---- */
 "platform/ws": function (module, exports, require) {
 'use strict';
-// طبقة المنصة — اعتراض WebSocket للقراءة فقط وترجمة رسائل المنصة إلى أوامر المحرك.
-// هذه الوحدة وحدها تعرف صيغة رسائل المنصة (Socket.IO: 42[...] نصي، 451-[...] + إطار ثنائي).
-// لا نعترض send ولا نرسل شيئًا إطلاقًا.
+// طبقة المنصة — اعتراض WebSocket الصفحة للقراءة فقط وترجمة رسائلها إلى أوامر المحرك.
+// - لا نعترض send ولا نرسل شيئًا إطلاقًا، ولا نفتح أي اتصال خاص بنا.
+// - حالة مستقلة لكل اتصال: الحدث الثنائي المنتظر لمرفقاته، وطابور ترتيب الرسائل. (v3.6 كانت حالة expect مشتركة
+//   بين كل الاتصالات، فإطار ثنائي من اتصال قد يُفسَّر بحدث من اتصال آخر.)
+// - التحليل وفق بروتوكول Socket.IO (core/sio.js) مع أي عدد من المرفقات الثنائية وnamespace وack.
+// - أي فشل في التحليل يُسجَّل (لا يُبتلع بصمت).
+// - حارس من التركيب المزدوج: لو حُقن السكربت مرتين لا يُلَف WebSocket مرتين ولا تتكرر المستمعات.
+const { parseText, fillPlaceholders, eventName } = require('../core/sio');
+const { hostOf } = require('./discovery');
 const WS_GRACE_MS = 3000; // مهلة قبل اعتبار الانقطاع حقيقيًا (إعادة اتصال المنصة العادية تستغرق ثوانٍ قليلة)
+const TAP = '__wsnfTap';
 
-// ترجمة رسالة واحدة إلى استدعاءات المحرك (مكشوفة للاختبارات باسم handle)
+// الأحداث السوقية التي نعرف صيغتها (موروثة من الإصدار الأصلي؛ تحقق منها بأداة الاستكشاف على صفحتك)
+const KNOWN = [
+  { test: n => n === 'updateStream', kind: 'stream' },
+  { test: n => /^updateHistoryNew/.test(n), kind: 'hist' }
+];
+
+// ترجمة حدث إلى استدعاءات المحرك (مكشوفة للاختبارات باسم handle)
 function createHandler(E) {
-  const [feedTick, loadHistory, logErr] = E.use('feedTick', 'loadHistory', 'logErr');
-  return function handle(kind, j) {
+  const [ingestTicks, ingestHistory, logErr] = E.use('ingestTicks', 'ingestHistory', 'logErr');
+  return function handle(kind, j, connId) {
     try {
-      if (kind === 'stream' && Array.isArray(j)) j.forEach(x => { if (Array.isArray(x) && x.length >= 3) feedTick(String(x[0]), +x[1], +x[2]); });
-      if (kind === 'hist' && j && j.asset && Array.isArray(j.history)) loadHistory(j.asset, j.history);
+      if (kind === 'stream') ingestTicks(connId || 0, j);
+      if (kind === 'hist' && j && j.asset && Array.isArray(j.history)) ingestHistory(connId || 0, j.asset, j.history);
     } catch (e) { E.S.loading = false; logErr('HANDLE', String(e && e.message || e)); }
   };
 }
 
-// تركيب الاعتراض على window.WebSocket. win: كائن النافذة (أو بديل في الاختبار)، timers: { setTimeout, clearTimeout }.
-function installSocketTap(win, E, handle, timers) {
-  const [connOpen, connLost, onWsDown, logErr] = E.use('connOpen', 'connLost', 'onWsDown', 'logErr');
-  let expect = null, expectWs = null, chain = Promise.resolve();
-  const toText = d => (win.Blob && d instanceof win.Blob) ? d.text() : Promise.resolve(new TextDecoder().decode(d));
-  const liveSockets = new Set();
-  let wsDownTimer = null;
-  function onMsg(ev) {
-    const d = ev.data;
-    if (typeof d === 'string') {
-      if (/^45\d-/.test(d)) {
-        expect = d.includes('updateStream') ? 'stream' : /updateHistoryNew/.test(d) ? 'hist' : null;
-        expectWs = expect ? ev.target : null;
-        return;
-      }
-      const m = /^42\d*(\[[\s\S]*)$/.exec(d);
-      if (m) {
-        try {
-          const j = JSON.parse(m[1]);
-          if (j[0] === 'updateStream') handle('stream', j[1]);
-          else if (/^updateHistoryNew/.test(j[0])) handle('hist', j[1]);
-        } catch (e) {}
-      }
-      return;
-    }
-    if (expect && (!expectWs || ev.target === expectWs)) {
-      const kind = expect; expect = null; expectWs = null;
-      chain = chain.then(() => toText(d)).then(t => handle(kind, JSON.parse(t))).catch(e => { logErr('WS_PARSE', String(e && e.message || e)); });
-    }
-  }
+// تركيب الاعتراض على win.WebSocket. timers: { setTimeout, clearTimeout }. discovery: أداة الاستكشاف (اختيارية).
+function installSocketTap(win, E, handle, timers, discovery) {
+  const [connCreated, connOpened, connClosed, onMessage, onEvent, parseError, onWsDown, logErr] =
+    E.use('connCreated', 'connOpened', 'connClosed', 'onMessage', 'onEvent', 'parseError', 'onWsDown', 'logErr');
   const NativeWS = win.WebSocket;
   if (!NativeWS) return false;
-  win.WebSocket = function (url, proto) {
+  if (NativeWS[TAP]) return false; // مركّب مسبقًا
+  const decoder = new TextDecoder();
+  const toText = d => (win.Blob && d instanceof win.Blob) ? d.text() : Promise.resolve(decoder.decode(d instanceof ArrayBuffer ? new Uint8Array(d) : d));
+  const live = new Set();
+  let downTimer = null;
+
+  function dispatch(c, data, binary) {
+    const name = eventName(data);
+    if (!name) { parseError(c.id, 'حدث بلا اسم'); return; }
+    if (discovery) discovery.observe(name, data.slice(1), { binary });
+    const k = KNOWN.find(x => x.test(name));
+    onEvent(c.id, name, !!k);
+    if (k) handle(k.kind, data[1], c.id);
+  }
+  function onText(c, s) {
+    const m = parseText(s);
+    if (discovery) discovery.frame(m.sio ? 'sio:' + m.sio : 'eio:' + m.eio);
+    if (m.error) { parseError(c.id, m.error + ' — ' + s.slice(0, 40)); return; }
+    if (m.eio !== 'message') return;
+    if (m.sio === 'event' || (m.sio === 'binary_event' && !m.attachments)) { if (m.data !== undefined) dispatch(c, m.data, false); return; }
+    if (m.sio === 'binary_event') {
+      if (c.pend) parseError(c.id, 'حدث ثنائي جديد قبل اكتمال مرفقات السابق (' + c.pend.atts.length + '/' + c.pend.need + ')');
+      c.pend = { data: m.data, need: m.attachments, atts: [] };
+    }
+  }
+  function onBinaryText(c, t) {
+    if (!c.pend) { parseError(c.id, 'إطار ثنائي بلا حدث ينتظره'); return; }
+    let v;
+    try { v = JSON.parse(t); } catch (e) { parseError(c.id, 'مرفق ثنائي ليس JSON: ' + String(e && e.message || e).slice(0, 60)); c.pend = null; return; }
+    c.pend.atts.push(v);
+    if (c.pend.atts.length < c.pend.need) return;
+    const p = c.pend; c.pend = null;
+    let data;
+    try { data = fillPlaceholders(p.data, p.atts); } catch (e) { parseError(c.id, String(e && e.message || e)); return; }
+    dispatch(c, data, true);
+  }
+  // الترتيب داخل الاتصال الواحد محفوظ: النص الذي يصل أثناء فك إطار ثنائي ينتظر دوره
+  function onMsg(c, ev) {
+    const d = ev.data, bytes = typeof d === 'string' ? d.length : (d && (d.byteLength || d.size)) || 0;
+    onMessage(c.id, bytes);
+    if (typeof d === 'string') {
+      if (!c.busy) { onText(c, d); return; }
+      c.q = c.q.then(() => onText(c, d));
+      return;
+    }
+    c.busy++;
+    c.q = c.q.then(() => toText(d)).then(t => onBinaryText(c, t))
+      .catch(e => parseError(c.id, 'فك إطار ثنائي: ' + String(e && e.message || e)))
+      .then(() => { c.busy--; });
+  }
+
+  const Tapped = function (url, proto) {
     const ws = proto !== undefined ? new NativeWS(url, proto) : new NativeWS(url);
-    ws.addEventListener('message', onMsg);
+    const c = { id: connCreated(hostOf(url)), pend: null, q: Promise.resolve(), busy: 0 }; // المضيف فقط، بلا مسار ولا معاملات
+    try { if (discovery) discovery.host(url); } catch (e) {}
+    ws.addEventListener('message', ev => { try { onMsg(c, ev); } catch (e) { parseError(c.id, 'معالجة رسالة: ' + String(e && e.message || e)); } });
     ws.addEventListener('open', () => {
-      liveSockets.add(ws);
-      connOpen();
-      if (wsDownTimer) { timers.clearTimeout(wsDownTimer); wsDownTimer = null; } // رجع الاتصال خلال المهلة: لا انقطاع فعلي
+      live.add(ws);
+      connOpened(c.id);
+      if (downTimer) { timers.clearTimeout(downTimer); downTimer = null; } // رجع الاتصال خلال المهلة: لا انقطاع فعلي
     });
     ws.addEventListener('close', () => {
-      const wasLive = liveSockets.delete(ws);
-      if (expectWs === ws) { expect = null; expectWs = null; } // لا نفسّر رسالة ثنائية قادمة من اتصال مغلق
-      if (!wasLive) return;            // اتصال فشل قبل أن يفتح: ليس انقطاعًا جديدًا
-      if (liveSockets.size) return;    // ما زال هناك اتصال حي آخر
-      connLost();                      // نوقف التحليل والدخول فورًا
-      if (wsDownTimer) return;         // الانقطاع مسجَّل قيد المهلة أصلًا
-      wsDownTimer = timers.setTimeout(() => { // لا نسجّل خطأ ولا نُلغي صفقة إلا لو طال الانقطاع
-        wsDownTimer = null;
-        if (liveSockets.size) return;
+      c.pend = null; // لا نفسّر مرفقات قادمة من اتصال مغلق
+      const wasLive = live.delete(ws);
+      const last = connClosed(c.id);
+      if (!wasLive || !last) return;    // فشل قبل أن يفتح، أو ما زال اتصال آخر حيًا
+      if (downTimer) return;            // الانقطاع مسجَّل قيد المهلة أصلًا
+      downTimer = timers.setTimeout(() => { // لا نسجّل خطأ ولا نُلغي صفقة إلا لو طال الانقطاع
+        downTimer = null;
+        if (live.size) return;
         logErr('WS_DOWN', 'انقطع اتصال WebSocket');
         onWsDown();
       }, WS_GRACE_MS);
     });
     return ws; // لا نعترض send ولا نرسل شيئًا
   };
-  win.WebSocket.prototype = NativeWS.prototype;
-  ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach(k => { win.WebSocket[k] = NativeWS[k]; });
+  Tapped.prototype = NativeWS.prototype;
+  ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach(k => { Tapped[k] = NativeWS[k]; });
+  Object.defineProperty(Tapped, TAP, { value: true });
+  win.WebSocket = Tapped;
   return true;
 }
-module.exports = { createHandler, installSocketTap, WS_GRACE_MS };
+module.exports = { createHandler, installSocketTap, WS_GRACE_MS, KNOWN };
 },
 /* ---- recorder/format.js ---- */
 "recorder/format": function (module, exports, require) {
@@ -2857,7 +3308,7 @@ const HTML = `
 </div>
 <div class="full" id="full">
 <header>
-  <div class="brand">${letters(NAME)}<i class="dot"></i><small>v3.6 · محاكاة فقط</small></div>
+  <div class="brand">${letters(NAME)}<i class="dot"></i><small>v4.0 (تطوير) · محاكاة فقط</small></div>
   <nav class="nav" id="nav">
     <button data-p="home" class="on">الرئيسية</button>
     <button data-p="chart">الشارت</button>
@@ -2873,6 +3324,11 @@ const HTML = `
 </header>
 <section class="page p-home on" data-page="home">
   <div style="display:grid;gap:14px;align-content:start">
+    <div class="card" id="feedCard" data-v4>
+      <h3>اتصال المنصة وحالة البيانات <span class="chip" id="feedBadge">—</span></h3>
+      <div class="stats" id="feedSt"></div>
+      <div class="note" id="feedNote"></div>
+    </div>
     <div class="card hero shine" id="hero">
       <h3><span id="assetT">—</span></h3>
       <div class="gw">
@@ -3061,6 +3517,19 @@ const HTML = `
   </div>
 </section>
 <section class="page p-err" data-page="err" style="grid-template-columns:1fr">
+  <div class="card" data-v4>
+    <h3>استكشاف بيانات المنصة (تشخيص)</h3>
+    <div class="note">تسجّل هذه الأداة <b>أسماء</b> الرسائل التي تصل من المنصة و<b>بنيتها</b> (الأنواع والمفاتيح) لمعرفة الصيغ الحقيقية بدل تخمينها. لا تسجّل قيم أي رسالة فيها مفتاح يوحي بالحساب أو الهوية (رصيد، بريد، مستخدم، جلسة…)، ولا الرسائل الصادرة، ولا عناوين الاتصال الكاملة. تتوقف تلقائيًا بعد 10 دقائق. راجع الملف قبل مشاركته.</div>
+    <div class="row"><button class="tgl" id="discOn">بدء الاستكشاف</button><button id="discExp">تصدير التقرير</button></div>
+    <div class="note" id="discSt"></div>
+  </div>
+  <div class="card" data-v4>
+    <h3>رسائل المنصة والأخطاء في البيانات</h3>
+    <div class="stats" id="feedMsgs"></div>
+    <div class="scroll"><table><thead><tr><th>الحدث</th><th>العدد</th><th>النوع</th></tr></thead><tbody id="feedEv"></tbody></table></div>
+    <div class="scroll"><table><thead><tr><th>سبب رفض التيك</th><th>العدد</th></tr></thead><tbody id="feedRej"></tbody></table></div>
+    <div class="scroll"><table><thead><tr><th>الوقت</th><th>خطأ تحليل رسالة</th></tr></thead><tbody id="feedErr"></tbody></table></div>
+  </div>
   <div class="card">
     <h3>سجل الأخطاء والأحداث</h3>
     <div class="row"><button id="expDiag">تصدير التشخيص</button><button id="clrErr">مسح السجل</button></div>
@@ -3137,6 +3606,9 @@ function buildUI(app) {
   $('auto').onclick = () => { cmd.toggleAuto(); paint(); };
   $('kill').onclick = () => { cmd.kill(); paint(); };
   $('clrErr').onclick = () => { cmd.clearErrors(); };
+  const tappedOk = app.tapped !== false;
+  $('discOn').onclick = () => { if (app.discovery.status().on) app.discovery.stop(); else app.discovery.start(); paint(); };
+  $('discExp').onclick = () => app.downloadText('wsnf-platform-discovery-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.json', JSON.stringify(app.discovery.report(), null, 1), 'application/json');
   $('expDiag').onclick = () => app.downloadText('wsnf-diag-' + Date.now() + '.json', JSON.stringify(app.diagnostics(), null, 1), 'application/json');
   $('gate').onclick = () => { cmd.toggleGate(); };
   $('labX').onclick = e => { const b = e.target.closest('button[data-adopt]'); if (b) cmd.adopt(b.dataset.adopt); };
@@ -3246,9 +3718,45 @@ function buildUI(app) {
       return `<tr><td>${new Date(e.at).toTimeString().slice(0, 8)}</td><td>${EV_LABEL[e.type] || ESC(e.type)}</td><td class="note">${ESC(d)}</td></tr>`;
     }).join('') || '<tr><td colspan="3" class="note">لا أحداث بعد</td></tr>';
   }
+  const FEED_CLS = { live: 'c-u', delayed: 'c-g', connected: 'c-g', connecting: 'c-g', stale: 'c-d', unavailable: 'c-d', disconnected: 'c-d', error: 'c-d' };
+  const NA = '<span class="note">غير متاح</span>';
+  const ago = ms => ms === null || ms === undefined ? NA : ms < 1000 ? 'الآن' : ms < 60000 ? Math.round(ms / 1000) + ' ث' : ms < 36e5 ? Math.round(ms / 60000) + ' د' : Math.round(ms / 36e5) + ' س';
+  function paintFeed(V) {
+    const f = app.vm.feed(), shown = app.readShown(), dq = V.dq;
+    $('feedBadge').textContent = f.label;
+    $('feedBadge').className = 'chip ' + (FEED_CLS[f.status] || 'c-m');
+    const st = (k, v, s, cls) => `<div class="st"><span>${k}</span><b class="${cls || ''}">${v}</b>${s ? '<small>' + s + '</small>' : ''}</div>`;
+    $('feedSt').innerHTML =
+      st('الحالة', ESC(f.label), 'منذ ' + ago(Date.now() - f.since), f.status === 'live' ? 'w' : f.status === 'delayed' || f.status === 'connected' || f.status === 'connecting' ? 'warn' : 'l') +
+      st('مصدر البيانات', f.source === 'platform-ws' ? 'Pocket Option' : ESC(f.source), 'WebSocket الصفحة — قراءة فقط') +
+      st('الأصل المحلَّل', f.asset ? ESC(f.asset) : NA, 'المعروض في الصفحة: ' + (shown ? ESC(shown) : 'غير متاح')) +
+      st('آخر سعر', f.lastPrice != null ? f.lastPrice : NA, f.lastTs ? 'وقت المنصة ' + new Date(f.lastTs * 1000).toLocaleTimeString('ar', { hour12: false }) : '') +
+      st('آخر تحديث', ago(f.ageMs), f.lagS !== null ? 'فرق ساعة المنصة عن جهازك ≈ ' + f.lagS + ' ث' : '') +
+      st('التيكات', f.ticks.ok, 'مستلمة ' + f.ticks.rx + ' · مكررة ' + f.ticks.dup + ' · مرفوضة ' + f.ticks.rej, f.ticks.rej ? 'warn' : '') +
+      st('الشموع المعالجة', f.candles, 'حية منذ تشغيل الصفحة') +
+      st('جودة البيانات', dq ? dq.q + '%' : NA, dq && dq.issues.length ? ESC(dq.issues.join(' | ')) : '', dq && dq.q < V.cfg.minQ ? 'l' : '') +
+      st('الاتصال', f.open + ' مفتوح', 'إعادة اتصال ' + f.reconnects + ' · انقطاع كلي ' + ago(f.downMs), f.open ? '' : 'l');
+    $('feedNote').innerHTML = (f.reloadAdvice ? '<span class="l">⚠ لم تُعِد المنصة الاتصال: أعد تحميل الصفحة.</span> ' : '') +
+      (tappedOk ? '' : '<span class="l">⚠ لم يُركَّب مراقب WebSocket: لن تصل أي بيانات. أعد تحميل الصفحة.</span> ') +
+      '«بيانات حية» تظهر فقط عند وصول تيك صالح للأصل خلال آخر 3 ث عبر اتصال مفتوح؛ الاتصال وحده لا يكفي.';
+    if (sh.querySelector('.p-err.on')) {
+      const D = app.discovery.status();
+      $('discOn').textContent = D.on ? 'إيقاف الاستكشاف' : 'بدء الاستكشاف';
+      $('discOn').classList.toggle('on', D.on);
+      $('discSt').textContent = D.on ? 'يعمل منذ ' + ago(Date.now() - D.startedAt) + ' · رسائل ' + D.messages + ' · أنواع ' + D.types : D.messages ? 'متوقف (' + (D.stopReason || '') + ') · رسائل ' + D.messages + ' · أنواع ' + D.types : 'غير مفعّل';
+      $('feedMsgs').innerHTML = st('رسائل مستلمة', f.msgs, Math.round(f.bytes / 1024) + ' KB') + st('اتصالات', f.conns.length, 'مفتوحة ' + f.open) + st('أخطاء تحليل', f.parseErrors.length, '', f.parseErrors.length ? 'warn' : '') +
+        st('التاريخ', f.hist.ok, 'تحميلات ' + f.hist.loads + ' · مرفوضة ' + f.hist.rej, f.hist.rej ? 'warn' : '');
+      const ev = Object.entries(f.known).map(([k, n]) => [k, n, 'مقروء']).concat(Object.entries(f.unknown).map(([k, n]) => [k, n, 'غير مقروء'])).sort((a, b) => b[1] - a[1]);
+      $('feedEv').innerHTML = ev.slice(0, 40).map(([k, n, t]) => `<tr><td style="direction:ltr;text-align:left">${ESC(k)}</td><td>${n}</td><td class="${t === 'مقروء' ? 'w' : 'note'}">${t}</td></tr>`).join('') || '<tr><td colspan="3" class="note">لم تصل رسائل بعد</td></tr>';
+      const rj = Object.entries(f.ticks.reasons).concat(Object.entries(f.hist.reasons).map(([k, n]) => ['تاريخ: ' + k, n]));
+      $('feedRej').innerHTML = rj.map(([k, n]) => `<tr><td>${ESC(k)}</td><td>${n}</td></tr>`).join('') || '<tr><td colspan="2" class="note">لا شيء</td></tr>';
+      $('feedErr').innerHTML = f.parseErrors.slice().reverse().map(e => `<tr><td>${new Date(e.at).toTimeString().slice(0, 8)}</td><td>${ESC(e.why)}</td></tr>`).join('') || '<tr><td colspan="2" class="note">لا أخطاء</td></tr>';
+    }
+  }
   function paint() {
     const V = app.vm.view(app.readShown()), R = app.vm.recorder(), r = V.r, d = r ? r.d : 'none', st = V.st, C = V.cfg;
     const col = d === 'call' ? '#3ddbb0' : d === 'put' ? '#ff6b7a' : '#f5c45e';
+    paintFeed(V);
     $('assetT').textContent = V.asset
       ? V.asset + ' | ' + V.n + ' شمعة' + (V.price ? ' | ' + V.price : '')
       : 'لا بيانات بعد: حدّث الصفحة (F5) وانتظر';

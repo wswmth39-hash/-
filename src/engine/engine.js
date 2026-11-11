@@ -27,11 +27,22 @@ module.exports = function install(E) {
     stratErrAt[k] = now;
     logErr('STRAT_ERR', k + ': ' + String(e && e.message || e));
   }
+  // v4: حد للذاكرة — لا نحتفظ بشموع أكثر من CFG.maxAssets أصلًا في وقت واحد (كانت 5000 شمعة لكل أصل فُتح بلا حد).
+  // يُحذف الأقدم تحديثًا، ولا يُحذف أبدًا: الأصل الحالي، المقفول، أو صاحب صفقة افتراضية مفتوحة/معلّقة.
+  function evictAssets(incoming) {
+    const keep = new Set([incoming, S.cur, S.lock, S.open && S.open.asset, S.pending && S.pending.asset]);
+    const ks = Object.keys(S.candles).filter(a => !keep.has(a)).sort((a, b) => (S.lastTs[a] || 0) - (S.lastTs[b] || 0));
+    while (Object.keys(S.candles).length >= CFG.maxAssets && ks.length) {
+      const a = ks.shift();
+      delete S.candles[a]; delete S.P[a]; delete S.sigBy[a]; delete S.dq[a]; delete S.SH[a]; delete S.sdh[a];
+    }
+  }
   // ================= الشموع من التيك =================
   function feedTick(asset, ts, p) {
     if (!Number.isFinite(ts) || !Number.isFinite(p) || p <= 0) return;
     if (S.lock && asset !== S.lock) return;
     const t = Math.floor(ts / CFG.tf) * CFG.tf;
+    if (!S.candles[asset]) evictAssets(asset);
     const arr = S.candles[asset] || (S.candles[asset] = []);
     const c = arr[arr.length - 1];
     if (c && c.t > t) return; // تيك قديم/خارج الترتيب

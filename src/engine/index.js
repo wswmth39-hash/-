@@ -17,6 +17,7 @@ function createEngine(env) {
   require('./paper')(E);
   require('./lab')(E);
   require('./engine')(E);
+  require('./feed')(E);
   require('./viewmodel')(E);
   require('./commands')(E);
   require('../recorder/recorder')(E);

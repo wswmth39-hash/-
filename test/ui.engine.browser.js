@@ -53,13 +53,15 @@ async function session(browser, file, { ui, paintEvery = 0 }) {
   });
   return { page, ctx, errors, fingerprint };
 }
-const norm = t => t.replace(/\b\d{1,2}:\d{2}(:\d{2})?\b/g, 'T').replace(/v3\.[56]/g, 'vX').replace(/\s+/g, ' ').trim();
+const norm = t => t.replace(/\b\d{1,2}:\d{2}(:\d{2})?\b/g, 'T').replace(/v\d\.\d( \(تطوير\))?/g, 'vX').replace(/\s+/g, ' ').trim();
 async function pageTexts(s, wait) {
   const out = {};
   for (const p of PAGES) {
     await s.page.evaluate(p => { const sh = document.getElementById('wsnf25-host').shadowRoot; sh.querySelector('.splash').style.display = 'none'; sh.querySelector('#nav button[data-p="' + p + '"]').click(); }, p);
     await s.page.waitForTimeout(wait);
-    out[p] = norm(await s.page.evaluate(p => { const sh = document.getElementById('wsnf25-host').shadowRoot; return sh.getElementById('chips').innerText + ' || ' + sh.querySelector('.page.on').innerText; }, p));
+    out[p] = norm(await s.page.evaluate(p => { const sh = document.getElementById('wsnf25-host').shadowRoot; const pg = sh.querySelector('.page.on'), cl = pg.cloneNode(true); cl.querySelectorAll('[data-v4]').forEach(x => x.remove()); // البطاقات الجديدة في v4 تُستبعد: نقارن المحتوى القديم فقط
+    document.body.appendChild(cl); cl.style.cssText = 'position:absolute;left:-99999px;width:1200px'; const txt = cl.innerText; cl.remove();
+    return sh.getElementById('chips').innerText + ' || ' + txt; }, p));
   }
   return out;
 }

@@ -157,7 +157,7 @@ const HTML = `
 </div>
 <div class="full" id="full">
 <header>
-  <div class="brand">${letters(NAME)}<i class="dot"></i><small>v3.6 · محاكاة فقط</small></div>
+  <div class="brand">${letters(NAME)}<i class="dot"></i><small>v4.0 (تطوير) · محاكاة فقط</small></div>
   <nav class="nav" id="nav">
     <button data-p="home" class="on">الرئيسية</button>
     <button data-p="chart">الشارت</button>
@@ -173,6 +173,11 @@ const HTML = `
 </header>
 <section class="page p-home on" data-page="home">
   <div style="display:grid;gap:14px;align-content:start">
+    <div class="card" id="feedCard" data-v4>
+      <h3>اتصال المنصة وحالة البيانات <span class="chip" id="feedBadge">—</span></h3>
+      <div class="stats" id="feedSt"></div>
+      <div class="note" id="feedNote"></div>
+    </div>
     <div class="card hero shine" id="hero">
       <h3><span id="assetT">—</span></h3>
       <div class="gw">
@@ -361,6 +366,19 @@ const HTML = `
   </div>
 </section>
 <section class="page p-err" data-page="err" style="grid-template-columns:1fr">
+  <div class="card" data-v4>
+    <h3>استكشاف بيانات المنصة (تشخيص)</h3>
+    <div class="note">تسجّل هذه الأداة <b>أسماء</b> الرسائل التي تصل من المنصة و<b>بنيتها</b> (الأنواع والمفاتيح) لمعرفة الصيغ الحقيقية بدل تخمينها. لا تسجّل قيم أي رسالة فيها مفتاح يوحي بالحساب أو الهوية (رصيد، بريد، مستخدم، جلسة…)، ولا الرسائل الصادرة، ولا عناوين الاتصال الكاملة. تتوقف تلقائيًا بعد 10 دقائق. راجع الملف قبل مشاركته.</div>
+    <div class="row"><button class="tgl" id="discOn">بدء الاستكشاف</button><button id="discExp">تصدير التقرير</button></div>
+    <div class="note" id="discSt"></div>
+  </div>
+  <div class="card" data-v4>
+    <h3>رسائل المنصة والأخطاء في البيانات</h3>
+    <div class="stats" id="feedMsgs"></div>
+    <div class="scroll"><table><thead><tr><th>الحدث</th><th>العدد</th><th>النوع</th></tr></thead><tbody id="feedEv"></tbody></table></div>
+    <div class="scroll"><table><thead><tr><th>سبب رفض التيك</th><th>العدد</th></tr></thead><tbody id="feedRej"></tbody></table></div>
+    <div class="scroll"><table><thead><tr><th>الوقت</th><th>خطأ تحليل رسالة</th></tr></thead><tbody id="feedErr"></tbody></table></div>
+  </div>
   <div class="card">
     <h3>سجل الأخطاء والأحداث</h3>
     <div class="row"><button id="expDiag">تصدير التشخيص</button><button id="clrErr">مسح السجل</button></div>
@@ -437,6 +455,9 @@ function buildUI(app) {
   $('auto').onclick = () => { cmd.toggleAuto(); paint(); };
   $('kill').onclick = () => { cmd.kill(); paint(); };
   $('clrErr').onclick = () => { cmd.clearErrors(); };
+  const tappedOk = app.tapped !== false;
+  $('discOn').onclick = () => { if (app.discovery.status().on) app.discovery.stop(); else app.discovery.start(); paint(); };
+  $('discExp').onclick = () => app.downloadText('wsnf-platform-discovery-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.json', JSON.stringify(app.discovery.report(), null, 1), 'application/json');
   $('expDiag').onclick = () => app.downloadText('wsnf-diag-' + Date.now() + '.json', JSON.stringify(app.diagnostics(), null, 1), 'application/json');
   $('gate').onclick = () => { cmd.toggleGate(); };
   $('labX').onclick = e => { const b = e.target.closest('button[data-adopt]'); if (b) cmd.adopt(b.dataset.adopt); };
@@ -546,9 +567,45 @@ function buildUI(app) {
       return `<tr><td>${new Date(e.at).toTimeString().slice(0, 8)}</td><td>${EV_LABEL[e.type] || ESC(e.type)}</td><td class="note">${ESC(d)}</td></tr>`;
     }).join('') || '<tr><td colspan="3" class="note">لا أحداث بعد</td></tr>';
   }
+  const FEED_CLS = { live: 'c-u', delayed: 'c-g', connected: 'c-g', connecting: 'c-g', stale: 'c-d', unavailable: 'c-d', disconnected: 'c-d', error: 'c-d' };
+  const NA = '<span class="note">غير متاح</span>';
+  const ago = ms => ms === null || ms === undefined ? NA : ms < 1000 ? 'الآن' : ms < 60000 ? Math.round(ms / 1000) + ' ث' : ms < 36e5 ? Math.round(ms / 60000) + ' د' : Math.round(ms / 36e5) + ' س';
+  function paintFeed(V) {
+    const f = app.vm.feed(), shown = app.readShown(), dq = V.dq;
+    $('feedBadge').textContent = f.label;
+    $('feedBadge').className = 'chip ' + (FEED_CLS[f.status] || 'c-m');
+    const st = (k, v, s, cls) => `<div class="st"><span>${k}</span><b class="${cls || ''}">${v}</b>${s ? '<small>' + s + '</small>' : ''}</div>`;
+    $('feedSt').innerHTML =
+      st('الحالة', ESC(f.label), 'منذ ' + ago(Date.now() - f.since), f.status === 'live' ? 'w' : f.status === 'delayed' || f.status === 'connected' || f.status === 'connecting' ? 'warn' : 'l') +
+      st('مصدر البيانات', f.source === 'platform-ws' ? 'Pocket Option' : ESC(f.source), 'WebSocket الصفحة — قراءة فقط') +
+      st('الأصل المحلَّل', f.asset ? ESC(f.asset) : NA, 'المعروض في الصفحة: ' + (shown ? ESC(shown) : 'غير متاح')) +
+      st('آخر سعر', f.lastPrice != null ? f.lastPrice : NA, f.lastTs ? 'وقت المنصة ' + new Date(f.lastTs * 1000).toLocaleTimeString('ar', { hour12: false }) : '') +
+      st('آخر تحديث', ago(f.ageMs), f.lagS !== null ? 'فرق ساعة المنصة عن جهازك ≈ ' + f.lagS + ' ث' : '') +
+      st('التيكات', f.ticks.ok, 'مستلمة ' + f.ticks.rx + ' · مكررة ' + f.ticks.dup + ' · مرفوضة ' + f.ticks.rej, f.ticks.rej ? 'warn' : '') +
+      st('الشموع المعالجة', f.candles, 'حية منذ تشغيل الصفحة') +
+      st('جودة البيانات', dq ? dq.q + '%' : NA, dq && dq.issues.length ? ESC(dq.issues.join(' | ')) : '', dq && dq.q < V.cfg.minQ ? 'l' : '') +
+      st('الاتصال', f.open + ' مفتوح', 'إعادة اتصال ' + f.reconnects + ' · انقطاع كلي ' + ago(f.downMs), f.open ? '' : 'l');
+    $('feedNote').innerHTML = (f.reloadAdvice ? '<span class="l">⚠ لم تُعِد المنصة الاتصال: أعد تحميل الصفحة.</span> ' : '') +
+      (tappedOk ? '' : '<span class="l">⚠ لم يُركَّب مراقب WebSocket: لن تصل أي بيانات. أعد تحميل الصفحة.</span> ') +
+      '«بيانات حية» تظهر فقط عند وصول تيك صالح للأصل خلال آخر 3 ث عبر اتصال مفتوح؛ الاتصال وحده لا يكفي.';
+    if (sh.querySelector('.p-err.on')) {
+      const D = app.discovery.status();
+      $('discOn').textContent = D.on ? 'إيقاف الاستكشاف' : 'بدء الاستكشاف';
+      $('discOn').classList.toggle('on', D.on);
+      $('discSt').textContent = D.on ? 'يعمل منذ ' + ago(Date.now() - D.startedAt) + ' · رسائل ' + D.messages + ' · أنواع ' + D.types : D.messages ? 'متوقف (' + (D.stopReason || '') + ') · رسائل ' + D.messages + ' · أنواع ' + D.types : 'غير مفعّل';
+      $('feedMsgs').innerHTML = st('رسائل مستلمة', f.msgs, Math.round(f.bytes / 1024) + ' KB') + st('اتصالات', f.conns.length, 'مفتوحة ' + f.open) + st('أخطاء تحليل', f.parseErrors.length, '', f.parseErrors.length ? 'warn' : '') +
+        st('التاريخ', f.hist.ok, 'تحميلات ' + f.hist.loads + ' · مرفوضة ' + f.hist.rej, f.hist.rej ? 'warn' : '');
+      const ev = Object.entries(f.known).map(([k, n]) => [k, n, 'مقروء']).concat(Object.entries(f.unknown).map(([k, n]) => [k, n, 'غير مقروء'])).sort((a, b) => b[1] - a[1]);
+      $('feedEv').innerHTML = ev.slice(0, 40).map(([k, n, t]) => `<tr><td style="direction:ltr;text-align:left">${ESC(k)}</td><td>${n}</td><td class="${t === 'مقروء' ? 'w' : 'note'}">${t}</td></tr>`).join('') || '<tr><td colspan="3" class="note">لم تصل رسائل بعد</td></tr>';
+      const rj = Object.entries(f.ticks.reasons).concat(Object.entries(f.hist.reasons).map(([k, n]) => ['تاريخ: ' + k, n]));
+      $('feedRej').innerHTML = rj.map(([k, n]) => `<tr><td>${ESC(k)}</td><td>${n}</td></tr>`).join('') || '<tr><td colspan="2" class="note">لا شيء</td></tr>';
+      $('feedErr').innerHTML = f.parseErrors.slice().reverse().map(e => `<tr><td>${new Date(e.at).toTimeString().slice(0, 8)}</td><td>${ESC(e.why)}</td></tr>`).join('') || '<tr><td colspan="2" class="note">لا أخطاء</td></tr>';
+    }
+  }
   function paint() {
     const V = app.vm.view(app.readShown()), R = app.vm.recorder(), r = V.r, d = r ? r.d : 'none', st = V.st, C = V.cfg;
     const col = d === 'call' ? '#3ddbb0' : d === 'put' ? '#ff6b7a' : '#f5c45e';
+    paintFeed(V);
     $('assetT').textContent = V.asset
       ? V.asset + ' | ' + V.n + ' شمعة' + (V.price ? ' | ' + V.price : '')
       : 'لا بيانات بعد: حدّث الصفحة (F5) وانتظر';

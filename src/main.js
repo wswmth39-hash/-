@@ -5,15 +5,19 @@ const { createEngine, startEngine } = require('./engine/index');
 const { SIM_ONLY, SCRIPT_VERSION } = require('./engine/state');
 const { createHandler, installSocketTap } = require('./platform/ws');
 const { readShownAsset, downloadText } = require('./platform/dom');
+const { createDiscovery } = require('./platform/discovery');
 const { buildUI } = require('./ui/ui');
 const core = {
   stats: require('./core/stats'), indicators: require('./core/indicators'), strategies: require('./core/strategies'),
   quality: require('./core/quality'), context: require('./core/context'), decision: require('./core/decision'), catalog: require('./core/catalog'),
-  format: require('./recorder/format')
+  format: require('./recorder/format'), sio: require('./core/sio'), feed: require('./core/feed')
 };
 
 const win = window;
 const TEST = win.__WSNF_TEST === true;
+// حارس الحقن المزدوج: إن حُقن السكربت مرتين في نفس الصفحة لا يُنشأ محرك ثانٍ ولا تتكرر المستمعات ولا يُلَف WebSocket مرتين
+if (win.__WSNF_RUNNING) { try { win.console.warn('[wsnf] السكربت يعمل مسبقًا في هذه الصفحة؛ تم تجاهل الحقن الثاني'); } catch (e) {} return; }
+Object.defineProperty(win, '__WSNF_RUNNING', { value: true });
 let idbf = null;
 try { idbf = win.indexedDB || null; } catch (e) { idbf = null; }
 const env = {
@@ -32,11 +36,12 @@ const flushNow = () => { try { F.saveAll(); } catch (e) {} try { F.recFlush(); }
 win.addEventListener('beforeunload', flushNow);
 win.addEventListener('pagehide', flushNow);
 try { document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushNow(); }); } catch (e) {}
-setInterval(() => { try { F.watchdog(); } catch (err) {} }, 1000);
+setInterval(() => { try { F.watchdog(); } catch (err) {} try { F.feedCheck(); } catch (err) {} }, 1000);
 setInterval(() => { try { F.recFlush(); } catch (err) {} }, 5000);
 
 const handle = createHandler(E);
-installSocketTap(win, E, handle, { setTimeout: (f, ms) => setTimeout(f, ms), clearTimeout: t => clearTimeout(t) });
+const discovery = createDiscovery({ clock: () => Date.now() });
+const tapped = installSocketTap(win, E, handle, { setTimeout: (f, ms) => setTimeout(f, ms), clearTimeout: t => clearTimeout(t) }, discovery);
 startEngine(E);
 
 const readShown = () => readShownAsset(document);
@@ -52,10 +57,11 @@ function diagnostics() {
 // كل ما تراه الواجهة من المحرك
 const app = {
   win, doc: document,
-  vm: { view: F.view, lab: F.lab, recorder: F.recorder, chart: F.chart, settings: F.settings },
+  vm: { view: F.view, lab: F.lab, recorder: F.recorder, chart: F.chart, settings: F.settings, feed: F.feed },
   cmd: E.cmd,
   rec: { setOn: F.recSetOn, exportFile: F.recExport, importFile: F.recImport, scanGaps: F.recScanGaps, clear: F.recClear },
-  on: E.on,
+  on: E.on, tapped,
+  discovery: { start: () => discovery.start(), stop: () => discovery.stop('إيقاف يدوي'), report: () => discovery.report({ version: SCRIPT_VERSION, feed: F.feedView() }), status: () => { const r = discovery.report(); return { on: r.running, startedAt: r.startedAt ? Date.parse(r.startedAt) : 0, messages: r.messages, types: Object.keys(r.events).length, stopReason: r.stopReason }; } },
   readShown, diagnostics,
   downloadText: (name, text, mime) => downloadText(win, name, text, mime),
   prefs: { get: F.LSget, set: F.LSset }
@@ -72,7 +78,8 @@ if (TEST) {
   const peek = a => S.A[F.AK(a)] || null;
   win.__WSNF25 = {
     SIM_ONLY, S, CFG, E, core, app, get ui() { return uiHandle; },
-    on: E.on, cmd: E.cmd,
+    on: E.on, cmd: E.cmd, discovery, tapped,
+    feedView: F.feedView, feedCheck: F.feedCheck, computeStatus: F.computeStatus, ingestTicks: F.ingestTicks, ingestHistory: F.ingestHistory, feedState: () => E.feed,
     feedTick: F.feedTick, onClose: F.onClose, handle, getA: F.getA, AK: F.AK,
     // تحليل نافذة «كما في لحظة إغلاق آخر شمعة فيها» (asOf صريح)
     analyze: (cs, A, asset) => F.analyzeWindow(cs, A, asset, cs.length ? cs[cs.length - 1].t + CFG.tf : undefined),

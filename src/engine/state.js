@@ -3,7 +3,7 @@
 // المفاتيح والإصدار لم تتغير عن v3.5: لا ترحيل بيانات في المرحلة C (انظر docs/ENGINE.md).
 const SIM_ONLY = true;
 const VERSION = 5;
-const SCRIPT_VERSION = '3.6.0';
+const SCRIPT_VERSION = '4.0.0-dev';
 const KEYS = Object.freeze({
   LIVE: 'wsnf33s_live', LOG: 'wsnf33s_log', UI: 'wsnf33s_ui', META: 'wsnf33s_meta', ERR: 'wsnf33s_err', CFG: 'wsnf33s_cfg',
   STATE: 'wsnf33s_state', SV: 'wsnf33s_sv', JOURNAL: 'wsnf33s_journal', RECCFG: 'wsnf33s_rec_cfg'
@@ -19,7 +19,9 @@ function createState() {
     gateZ: 2.5, zStrat: 2.3, prior: 20, recentN: 40, edgeTol: .15,
     maxTickAgeMs: 8000, maxDriftAtr: 1, confirmMs: 4000, lateTolS: 5, staleRestMs: 12e4, maxUnk: 3, maxFail: 3,
     contigN: 30, payoutBy: {},
-    recMaxPerSeries: 500000, recMaxGapFrac: .5
+    recMaxPerSeries: 500000, recMaxGapFrac: .5,
+    // v4: تغذية البيانات — «حية» حتى 3 ث من آخر تيك صالح، «متأخرة» حتى maxTickAgeMs، «قديمة» حتى دقيقة، ثم «غير متاحة»
+    feedLiveMs: 3000, feedUnavailableMs: 60000, feedWaitMs: 15000, maxPriceJump: .2, maxFutureS: 600, reloadAdviceMs: 60000, maxAssets: 8
   };
   const S = {
     candles: {}, P: {}, A: {}, sigBy: {}, lastTs: {},

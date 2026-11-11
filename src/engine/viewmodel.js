@@ -166,7 +166,9 @@ module.exports = function install(E) {
   // إعدادات تحتاجها الواجهة عند البناء فقط
   function settings() { return { tf: CFG.tf, minConf: CFG.minConf, payout: CFG.payout, payoutCur: payoutOf(S.cur), beCur: BE(S.cur), cur: S.cur, lock: S.lock }; }
 
-  E.provide({ view, lab, recorder, chart, settings, activeCheck, norm });
+  // حالة التغذية: نسخة من مراقب البيانات (engine/feed.js) دون تعديل
+  const feed = () => E.fn.feedView();
+  E.provide({ view, lab, recorder, chart, settings, feed, activeCheck, norm });
 };
 module.exports.activeCheck = activeCheck;
 module.exports.norm = norm;
