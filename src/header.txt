@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         wsnf smart bot v3.6 (simulation only + candle recorder)
+// @name         wsnf smart bot v4.0-dev (simulation only + candle recorder + reliable feed)
 // @namespace    local.wsnf.v34sim
-// @version      3.6.0
+// @version      4.0.0-dev
 // @description  تحليل وإشارات وصفقات افتراضية فقط (Paper Trading) + مسجّل شموع محلي. لا ينقر أي زر في المنصة ولا يرسل أي أمر.
 // @match        https://pocketoption.com/*
 // @match        https://*.pocketoption.com/*
