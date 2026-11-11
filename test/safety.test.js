@@ -14,9 +14,11 @@ test('A1 SIM_ONLY ثابت = true', () => {
 test('A2 لا يوجد في الكود أي محدد لأزرار CALL/PUT ولا نقر عليها', () => {
   const src = H.source();
   assert.doesNotMatch(src, /btn-call|btn-put|BTN_SEL|findTradeButton/);
-  // النقر الوحيد المسموح: رابط تنزيل ملف النسخة الاحتياطية الذي ينشئه البوت بنفسه
-  const clicks = src.match(/\.click\(\)/g) || [];
-  assert.ok(clicks.length <= 2, 'عدد استدعاءات click(): ' + clicks.length);
+  // كل click() يجب أن يكون على عنصر يملكه البوت نفسه: رابط تنزيل ينشئه، أو حقل اختيار ملف مخفي داخل واجهته.
+  const lines = src.split('\n').filter(l => /\.click\(\)/.test(l));
+  const allowed = [/document\.body\.appendChild\(a\); a\.click\(\); a\.remove\(\);/, /\$\('(impFile|recImpFile)'\)\.click\(\)/];
+  for (const l of lines) assert.ok(allowed.some(re => re.test(l)), 'click() غير مسموح: ' + l.trim());
+  if (process.env.WSNF_TARGET !== 'original') assert.ok(lines.length <= 3, 'عدد click(): ' + lines.length);
   assert.doesNotMatch(src, /btn\.click\(\)/);
 });
 

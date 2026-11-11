@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         wsnf smart bot v3.4 (simulation only)
+// @name         wsnf smart bot v3.5 (simulation only + candle recorder)
 // @namespace    local.wsnf.v34sim
-// @version      3.4.0
-// @description  تحليل وإشارات وصفقات افتراضية فقط (Paper Trading). لا ينقر أي زر في المنصة ولا يرسل أي أمر.
+// @version      3.5.0
+// @description  تحليل وإشارات وصفقات افتراضية فقط (Paper Trading) + مسجّل شموع محلي. لا ينقر أي زر في المنصة ولا يرسل أي أمر.
 // @match        https://pocketoption.com/*
 // @match        https://*.pocketoption.com/*
 // @run-at       document-start
@@ -30,9 +30,11 @@ const CFG = {
   cooldownCandles: 2, htfK: 5, maxGap: .05,
   gateZ: 2.5, zStrat: 2.3, prior: 20, recentN: 40, edgeTol: .15,
   maxTickAgeMs: 8000, maxDriftAtr: 1, confirmMs: 4000, lateTolS: 5, staleRestMs: 12e4, maxUnk: 3, maxFail: 3,
-  contigN: 30, payoutBy: {}
+  contigN: 30, payoutBy: {},
+  recMaxPerSeries: 500000, recMaxGapFrac: .5
 };
 const VERSION = 5;
+const SCRIPT_VERSION = '3.5.0';
 const KEY_LIVE = 'wsnf33s_live', KEY_LOG = 'wsnf33s_log', KEY_UI = 'wsnf33s_ui', KEY_META = 'wsnf33s_meta',
   KEY_ERR = 'wsnf33s_err', KEY_CFG = 'wsnf33s_cfg', KEY_STATE = 'wsnf33s_state';
 // العائد يختلف من أصل لآخر: نقطة التعادل = 1 / (1 + العائد)
@@ -206,7 +208,7 @@ function restore() {
     }
   });
 }
-const flushNow = () => { try { saveAll(); } catch (e) {} };
+const flushNow = () => { try { saveAll(); } catch (e) {} try { recFlush(); } catch (e) {} };
 window.addEventListener('beforeunload', flushNow);
 window.addEventListener('pagehide', flushNow);
 try { document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushNow(); }); } catch (e) {}
@@ -1333,13 +1335,17 @@ function feedTick(asset, ts, p) {
   if (!S.loading) { S.lastRx[asset] = Date.now(); S.lastPx[asset] = p; S.tickTs[asset] = ts; }
   if (!c || c.t < t) {
     if (c) onClose(asset, arr, t, ts);
-    arr.push({ t, o: p, h: p, l: p, c: p, ft: ts, lt: ts, nt: 1 });
+    // sl/sh: هل وصلت الشمعة تيكات حية/تاريخية · mg: أكبر فجوة بين تيكين · rx0: ساعة الجهاز عند أول تيك حي (لكشف الانقطاع أثناءها)
+    arr.push({ t, o: p, h: p, l: p, c: p, ft: ts, lt: ts, nt: 1, sl: !S.loading, sh: S.loading, mg: 0, rx0: S.loading ? 0 : Date.now() });
     if (arr.length > CFG.maxCandles) arr.shift();
   } else if (ts < c.lt) {
     // v3.4: تيك متأخر داخل الشمعة نفسها: حدث فعلًا فيدخل في القمة/القاع، لكنه ليس آخر سعر فلا يغيّر الإغلاق
     c.h = Math.max(c.h, p); c.l = Math.min(c.l, p); c.nt++;
+    if (S.loading) c.sh = true; else { c.sl = true; if (!c.rx0) c.rx0 = Date.now(); }
   } else {
+    if (ts - c.lt > (c.mg || 0)) c.mg = ts - c.lt;
     c.h = Math.max(c.h, p); c.l = Math.min(c.l, p); c.c = p; c.lt = ts; c.nt++;
+    if (S.loading) c.sh = true; else { c.sl = true; if (!c.rx0) c.rx0 = Date.now(); }
   }
   S.cur = asset; S.ticks++; S.lastTs[asset] = ts;
   if (!S.loading) {
@@ -1362,6 +1368,8 @@ function onClose(asset, arr, tNew, tsNow) {
   else if (tsNow !== undefined && tsNow < c.t + CFG.tf) bad = 'تحليل شمعة قبل انتهاء وقتها';
   else if (arr.length > 1 && !(arr[arr.length - 2].t < c.t)) bad = 'ترتيب الشموع الزمني مختل';
   if (bad) { aud.bad++; aud.last = bad; logErr('LOOKAHEAD', asset + ': ' + bad); }
+  // المسجّل: الشمعة أُغلقت للتو (وصل تيك بعد نهايتها). لا يؤثر على التحليل التالي.
+  try { recOnCandle(asset, c, complete, tsNow, bad); } catch (e) { logErr('REC_ERR', String(e && e.message || e)); }
   settleShadows(asset, A, c, complete, live);
   const nextOK = !!pd && c.t - pd.ct === CFG.tf && pd.ok === true && complete;
   if (pd && pd.log && pd.log.win === null && !pd.log.tie && !isOwn(pd.log) && !nextOK) pd.log.stale = true;
@@ -1497,6 +1505,7 @@ function watchdog() {
     const age = now - S.lastRx[a];
     if (age > CFG.maxTickAgeMs) {
       S.sigBy[a] = { ...noneR('بيانات قديمة: لا سعر منذ ' + Math.round(age / 1000) + ' ث — التحليل متوقف', r.regime), stale: true };
+      recEvent({ type: 'stale', a, age: Math.round(age / 1000) });
       if (S.P[a]) S.P[a].ok = false;
     }
   }
@@ -1508,7 +1517,9 @@ function watchdog() {
   }
 }
 setInterval(() => { try { watchdog(); } catch (err) {} }, 1000);
+setInterval(() => { try { recFlush(); } catch (err) {} }, 5000);
 function onWsDown() {
+  recEvent({ type: 'ws_down' });
   if (S.pending) failPending('انقطاع الاتصال قبل التأكيد');
   if (S.open) voidTrade(S.open, 'انقطاع الاتصال أثناء الصفقة');
 }
@@ -1523,6 +1534,7 @@ function setTf(v) {
   if (![15, 30, 60].includes(+v)) return false;
   if (S.pending) failPending('تغيير مدة الشمعة');
   if (S.open) voidTrade(S.open, 'تغيير مدة الشمعة', false);
+  if (+v !== CFG.tf) recEvent({ type: 'tf', from: CFG.tf, to: +v });
   CFG.tf = +v; S.candles = {}; S.P = {}; S.sigBy = {}; S.fired = {}; S.SH = {}; S.sdh = {}; S.dq = {};
   saveCfg();
   return true;
@@ -1583,6 +1595,404 @@ function verifyActiveAsset(asset) {
   return norm(asset) === norm(shown) ? { ok: true, why: shown } : { ok: false, why: 'المعروض "' + shown + '" ≠ ' + asset };
 }
 
+// ================= v3.5: مسجّل الشموع (للمحاكاة والتحليل فقط) =================
+// يحفظ كل شمعة مكتملة بعد انتهائها في IndexedDB (قاعدة منفصلة wsnf33s_rec). لا يؤثر على التحليل ولا القرار،
+// ولا يرسل شيئًا خارج المتصفح. التصميم وحدود موثوقية المصدر: docs/RECORDER_DESIGN.md
+const REC_SCHEMA = 1;
+const KEY_RECCFG = 'wsnf33s_rec_cfg';
+const REC_DB = 'wsnf33s_rec';
+// ترتيب الحقول ثابت: التصدير حتمي (نفس البيانات ⇒ نفس الملف ونفس الـchecksum)
+const RECF = ['a', 'tf', 't', 'tc', 'o', 'h', 'l', 'c', 'n', 'ft', 'lt', 'mg', 'cts', 'src', 'rx', 'v'];
+const REC_RANK = { hist: 1, mixed: 2, live: 3 };
+const REC_EV_MAX = 6000;
+const REC = {
+  on: true, ready: false, kind: '', err: '', backend: null, openP: null,
+  q: new Map(), evq: [], flushing: null,
+  series: {},            // a|tf → { a, tf, count, first, last, capped }
+  pn: {},                // a|tf → سجلات في الانتظار أو قيد الحفظ (تُحتسب في حد السلسلة قبل حفظها)
+  lastT: {},             // a|tf → آخر وقت افتتاح معروف (مخزَّن أو في الانتظار) لاكتشاف الفجوات الحية
+  sess: { added: 0, replaced: 0, dup: 0, conflicts: 0, maxDiff: 0, rejected: 0, reasons: {}, gaps: 0, flushes: 0, lastFlush: 0, flushErr: '', dropped: 0 },
+  events: [], scan: null
+};
+const recKey = (a, tf) => a + '|' + tf;
+const recPk = r => r.a + '|' + r.tf + '|' + r.t;
+// FNV-1a 32-bit: للتحقق من سلامة الملفات المصدَّرة (اكتشاف التلف/التعديل، ليس تشفيرًا)
+function fnv1a(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return ('0000000' + h.toString(16)).slice(-8);
+}
+
+// ---- قواعد صحة السجل (نفسها للتسجيل الحي والاستيراد) ----
+function recCheck(r) {
+  if (!r || typeof r !== 'object') return 'سجل غير صالح';
+  if (typeof r.a !== 'string' || !r.a || r.a.length > 40) return 'اسم أصل غير صالح';
+  if (!Number.isInteger(r.tf) || r.tf < 1 || r.tf > 86400) return 'إطار زمني غير صالح';
+  for (const f of ['t', 'tc', 'o', 'h', 'l', 'c', 'n', 'ft', 'lt', 'mg', 'cts']) if (!Number.isFinite(r[f])) return 'قيمة غير رقمية: ' + f;
+  if (r.t % r.tf !== 0) return 'وقت افتتاح غير محاذٍ للإطار';
+  if (r.tc !== r.t + r.tf) return 'وقت إغلاق غير متسق';
+  if (!(r.l > 0) || r.h < r.l || r.h < Math.max(r.o, r.c) || r.l > Math.min(r.o, r.c)) return 'أسعار OHLC غير متسقة';
+  if (!Number.isInteger(r.n) || r.n < 1) return 'عدد تيكات غير صالح';
+  if (r.ft < r.t || r.lt < r.ft || r.lt >= r.tc) return 'توقيت التيكات خارج الشمعة';
+  if (r.mg < 0 || r.mg > r.tf) return 'فجوة تيكات غير منطقية';
+  if (r.cts < r.tc) return 'بيانات مستقبلية: الشمعة سُجّلت قبل انتهاء وقتها';
+  if (!REC_RANK[r.src]) return 'مصدر غير معروف';
+  if (r.v !== REC_SCHEMA) return 'إصدار مخطط غير مدعوم';
+  return '';
+}
+// يبني السجل من الشمعة المبنية من التيكات. لا يضيف أي معلومة من خارج [t, t+tf).
+function recMake(asset, c, tf, tsClose) {
+  return {
+    a: asset, tf, t: c.t, tc: c.t + tf, o: c.o, h: c.h, l: c.l, c: c.c, n: c.nt, ft: c.ft, lt: c.lt,
+    mg: +(c.mg || 0).toFixed(3), cts: tsClose, src: c.sl && c.sh ? 'mixed' : c.sl ? 'live' : 'hist', rx: Date.now(), v: REC_SCHEMA
+  };
+}
+// قاعدة منع التكرار: المصدر الأعلى يستبدل الأدنى؛ غير ذلك يبقى الموجود (ويُعدّ تعارضًا إن اختلفت الأسعار)
+function recDecide(ex, r) {
+  if (!ex) return 'added';
+  if (REC_RANK[r.src] > REC_RANK[ex.src]) return 'replaced';
+  return ex.o === r.o && ex.h === r.h && ex.l === r.l && ex.c === r.c ? 'dup' : 'conflict';
+}
+const recDiff = (ex, r) => ex && ex.c ? Math.max(...['o', 'h', 'l', 'c'].map(f => Math.abs(r[f] - ex[f]) / Math.abs(ex.c))) : 0;
+// الفجوات في سلسلة أوقات مرتبة
+function recGaps(ts, tf) {
+  const out = [];
+  for (let i = 1; i < ts.length; i++) if (ts[i] - ts[i - 1] > tf) out.push({ from: ts[i - 1] + tf, to: ts[i], n: (ts[i] - ts[i - 1]) / tf - 1 });
+  return out;
+}
+
+// ---- واجهتا تخزين بنفس الدوال: IndexedDB (المتصفح) وذاكرة (احتياط/اختبار) ----
+function recMemBackend(store) {
+  const C = store.c || (store.c = new Map()), E = store.e || (store.e = []);
+  const inSeries = (r, a, tf) => r.a === a && r.tf === tf;
+  return {
+    kind: 'memory',
+    open: () => Promise.resolve(),
+    putMany(recs) {
+      return Promise.resolve(recs.map(r => {
+        const ex = C.get(recPk(r)), d = recDecide(ex, r);
+        if (d === 'added' || d === 'replaced') C.set(recPk(r), { ...r });
+        return { d, ex: ex ? { ...ex } : null };
+      }));
+    },
+    addEvents(evs) { E.push(...evs.map(e => ({ ...e }))); if (E.length > REC_EV_MAX) E.splice(0, E.length - REC_EV_MAX); return Promise.resolve(); },
+    series() {
+      const m = {};
+      for (const r of C.values()) {
+        const s = m[recKey(r.a, r.tf)] || (m[recKey(r.a, r.tf)] = { a: r.a, tf: r.tf, count: 0, first: r.t, last: r.t });
+        s.count++; if (r.t < s.first) s.first = r.t; if (r.t > s.last) s.last = r.t;
+      }
+      return Promise.resolve(Object.values(m).sort((x, y) => x.a < y.a ? -1 : x.a > y.a ? 1 : x.tf - y.tf));
+    },
+    range(a, tf, from = -Infinity, to = Infinity) {
+      return Promise.resolve([...C.values()].filter(r => inSeries(r, a, tf) && r.t >= from && r.t <= to).sort((x, y) => x.t - y.t).map(r => ({ ...r })));
+    },
+    times(a, tf) { return this.range(a, tf).then(rs => rs.map(r => r.t)); },
+    events(limit = 200) { return Promise.resolve(E.slice(-limit).reverse().map(e => ({ ...e }))); },
+    clear() { C.clear(); E.length = 0; return Promise.resolve(); }
+  };
+}
+function recIdbBackend() {
+  let db = null;
+  const done = tx => new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error || new Error('abort')); });
+  const KR = (a, tf, from = -Infinity, to = Infinity) => IDBKeyRange.bound([a, tf, from], [a, tf, to]);
+  return {
+    kind: 'indexeddb',
+    open() {
+      return new Promise((res, rej) => {
+        const q = indexedDB.open(REC_DB, 1);
+        q.onupgradeneeded = () => {
+          const d = q.result;
+          if (!d.objectStoreNames.contains('candles')) d.createObjectStore('candles', { keyPath: ['a', 'tf', 't'] });
+          if (!d.objectStoreNames.contains('events')) d.createObjectStore('events', { autoIncrement: true });
+        };
+        q.onsuccess = () => { db = q.result; db.onversionchange = () => { try { db.close(); } catch (e) {} }; res(); };
+        q.onerror = () => rej(q.error);
+        q.onblocked = () => rej(new Error('IndexedDB blocked'));
+      }).then(() => this.pruneEvents());
+    },
+    // القراءة ثم الكتابة داخل نفس المعاملة: لا يمكن لكتابتين متزامنتين أن تتجاوزا قاعدة منع التكرار
+    putMany(recs) {
+      const tx = db.transaction('candles', 'readwrite'), st = tx.objectStore('candles'), out = new Array(recs.length);
+      recs.forEach((r, i) => {
+        const g = st.get([r.a, r.tf, r.t]);
+        g.onsuccess = () => { const ex = g.result || null, d = recDecide(ex, r); out[i] = { d, ex }; if (d === 'added' || d === 'replaced') st.put(r); };
+      });
+      return done(tx).then(() => out);
+    },
+    addEvents(evs) { const tx = db.transaction('events', 'readwrite'), st = tx.objectStore('events'); evs.forEach(e => st.add(e)); return done(tx); },
+    pruneEvents() {
+      const tx = db.transaction('events', 'readwrite'), st = tx.objectStore('events');
+      const q = st.count();
+      q.onsuccess = () => {
+        let extra = q.result - REC_EV_MAX;
+        if (extra <= 0) return;
+        const cur = st.openCursor();
+        cur.onsuccess = () => { const c = cur.result; if (c && extra-- > 0) { c.delete(); c.continue(); } };
+      };
+      return done(tx);
+    },
+    // السلاسل: نقفز من سلسلة إلى التالية بالمفتاح [a, tf, +∞] بدل المرور على كل الشموع
+    series() {
+      return new Promise((res, rej) => {
+        const tx = db.transaction('candles'), st = tx.objectStore('candles'), out = [];
+        const next = lower => {
+          const r = st.openKeyCursor(lower ? IDBKeyRange.lowerBound(lower, true) : null);
+          r.onsuccess = () => {
+            const cur = r.result;
+            if (!cur) return;
+            const [a, tf, t] = cur.key, item = { a, tf, count: 0, first: t, last: t };
+            out.push(item);
+            const cq = st.count(KR(a, tf)); cq.onsuccess = () => { item.count = cq.result; };
+            const lq = st.openKeyCursor(KR(a, tf), 'prev'); lq.onsuccess = () => { if (lq.result) item.last = lq.result.key[2]; };
+            next([a, tf, Infinity]);
+          };
+        };
+        next(null);
+        done(tx).then(() => res(out), rej);
+      });
+    },
+    range(a, tf, from, to) {
+      return new Promise((res, rej) => {
+        const tx = db.transaction('candles'), q = tx.objectStore('candles').getAll(KR(a, tf, from, to));
+        q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+      });
+    },
+    times(a, tf) {
+      return new Promise((res, rej) => {
+        const tx = db.transaction('candles'), q = tx.objectStore('candles').getAllKeys(KR(a, tf));
+        q.onsuccess = () => res(q.result.map(k => k[2])); q.onerror = () => rej(q.error);
+      });
+    },
+    events(limit = 200) {
+      return new Promise((res, rej) => {
+        const tx = db.transaction('events'), out = [], q = tx.objectStore('events').openCursor(null, 'prev');
+        q.onsuccess = () => { const c = q.result; if (c && out.length < limit) { out.push(c.value); c.continue(); } };
+        done(tx).then(() => res(out), rej);
+      });
+    },
+    clear() { const tx = db.transaction(['candles', 'events'], 'readwrite'); tx.objectStore('candles').clear(); tx.objectStore('events').clear(); return done(tx); }
+  };
+}
+
+// ---- الحالة والأحداث ----
+function recEvent(e) {
+  const ev = { at: Date.now(), ...e };
+  REC.events.unshift(ev);
+  if (REC.events.length > 200) REC.events.pop();
+  REC.evq.push(ev);
+  if (ev.type === 'gap') REC.sess.gaps++;
+}
+function recSetOn(on) { REC.on = !!on; LSset(KEY_RECCFG, { on: REC.on }); recEvent({ type: on ? 'rec_on' : 'rec_off' }); }
+function recRefreshSeries() {
+  return REC.backend.series().then(list => {
+    const m = {};
+    for (const s of list) {
+      const k = recKey(s.a, s.tf);
+      m[k] = { ...s, capped: s.count >= CFG.recMaxPerSeries };
+      if (REC.lastT[k] === undefined || s.last > REC.lastT[k]) REC.lastT[k] = s.last;
+    }
+    REC.series = m;
+    return list;
+  });
+}
+function recInit() {
+  const c = LSget(KEY_RECCFG, null);
+  REC.on = !(c && c.on === false);
+  let be;
+  if (window.__WSNF_TEST === true && window.__WSNF_REC_MEM) be = recMemBackend(window.__WSNF_REC_MEM);
+  else if (typeof indexedDB !== 'undefined' && typeof IDBKeyRange !== 'undefined') be = recIdbBackend();
+  else { be = recMemBackend({}); REC.err = 'IndexedDB غير متاح: التسجيل في الذاكرة فقط وسيضيع عند إعادة التحميل'; }
+  REC.backend = be; REC.kind = be.kind;
+  REC.openP = be.open()
+    .catch(e => {
+      REC.err = 'تعذّر فتح IndexedDB (' + String(e && e.message || e) + '): التسجيل في الذاكرة فقط وسيضيع عند إعادة التحميل';
+      logErr('REC_OPEN', REC.err);
+      REC.backend = recMemBackend({}); REC.kind = 'memory';
+    })
+    .then(() => recRefreshSeries())
+    .then(() => { REC.ready = true; recEvent({ type: 'start', store: REC.kind }); return recFlush(); })
+    .catch(e => { REC.err = 'خطأ في تهيئة المسجّل: ' + String(e && e.message || e); logErr('REC_INIT', REC.err); });
+  return REC.openP;
+}
+
+// ---- التسجيل: يُستدعى من onClose بعد انتهاء الشمعة فقط ----
+function recReject(asset, tf, t, why, live) {
+  REC.sess.rejected++;
+  REC.sess.reasons[why] = (REC.sess.reasons[why] || 0) + 1;
+  if (live) recEvent({ type: 'reject', a: asset, tf, t, why });
+}
+function recOnCandle(asset, c, complete, tsClose, auditBad) {
+  if (!REC.on || tsClose === undefined) return;
+  const tf = CFG.tf, live = !S.loading;
+  let why = '';
+  if (auditBad) why = 'فشل تدقيق المستقبل: ' + auditBad;
+  else if (!complete) why = 'شمعة ناقصة (أول/آخر تيك بعيد عن حدودها)';
+  else if ((c.mg || 0) > tf * CFG.recMaxGapFrac) why = 'فجوة تيكات داخل الشمعة';
+  else if (c.sl && S.wsCloseAt && c.rx0 && S.wsCloseAt >= c.rx0) why = 'انقطاع الاتصال أثناء الشمعة';
+  const r = recMake(asset, c, tf, tsClose);
+  if (!why) why = recCheck(r);
+  const k = recKey(asset, tf), sr = REC.series[k];
+  if (!why && ((sr ? sr.count : 0) + (REC.pn[k] || 0) >= CFG.recMaxPerSeries) && !REC.q.has(recPk(r))) why = 'بلغت السلسلة الحد الأقصى (' + CFG.recMaxPerSeries + ')';
+  if (why) { recReject(asset, tf, c.t, why, live); return; }
+  const last = REC.lastT[k];
+  if (live && last !== undefined && r.t > last + tf) recEvent({ type: 'gap', a: asset, tf, from: last + tf, to: r.t, n: (r.t - last) / tf - 1 });
+  recEnqueue(r);
+  if (live) recFlush();
+}
+function recEnqueue(r) {
+  const pk = recPk(r), ex = REC.q.get(pk);
+  if (ex) {
+    const d = recDecide(ex, r);
+    if (d === 'replaced') REC.q.set(pk, r);
+    else { REC.sess[d === 'dup' ? 'dup' : 'conflicts']++; if (d === 'conflict') REC.sess.maxDiff = Math.max(REC.sess.maxDiff, recDiff(ex, r)); }
+  } else {
+    if (REC.q.size >= 100000) { REC.sess.dropped++; return; } // حماية الذاكرة إن تعطّل التخزين طويلًا
+    REC.q.set(pk, r);
+    REC.pn[recKey(r.a, r.tf)] = (REC.pn[recKey(r.a, r.tf)] || 0) + 1;
+  }
+  const k = recKey(r.a, r.tf);
+  if (REC.lastT[k] === undefined || r.t > REC.lastT[k]) REC.lastT[k] = r.t;
+}
+// الحفظ: دفعات متسلسلة (لا تتداخل)، وعند الفشل تعود السجلات إلى قائمة الانتظار
+function recFlush() {
+  const prev = REC.flushing || Promise.resolve();
+  if (!REC.ready || (!REC.q.size && !REC.evq.length)) return prev;
+  const batch = [...REC.q.values()], evs = REC.evq.splice(0);
+  REC.q.clear();
+  const be = REC.backend;
+  let more = [];
+  const p = prev.then(() => be.putMany(batch)).then(res => {
+    const S2 = REC.sess;
+    res.forEach((x, i) => {
+      const r = batch[i], k = recKey(r.a, r.tf);
+      REC.pn[k] = Math.max(0, (REC.pn[k] || 0) - 1);
+      if (x.d === 'added') {
+        const s = REC.series[k] || (REC.series[k] = { a: r.a, tf: r.tf, count: 0, first: r.t, last: r.t, capped: false });
+        s.count++; if (r.t < s.first) s.first = r.t; if (r.t > s.last) s.last = r.t;
+        if (s.count >= CFG.recMaxPerSeries && !s.capped) { s.capped = true; recEvent({ type: 'cap', a: r.a, tf: r.tf, n: s.count }); }
+        S2.added++;
+      } else if (x.d === 'replaced') S2.replaced++;
+      else if (x.d === 'dup') S2.dup++;
+      else { S2.conflicts++; S2.maxDiff = Math.max(S2.maxDiff, recDiff(x.ex, r)); }
+    });
+    more = REC.evq.splice(0);
+    const all = evs.concat(more);
+    return all.length ? be.addEvents(all) : null;
+  }).then(() => { REC.sess.flushes++; REC.sess.lastFlush = Date.now(); REC.sess.flushErr = ''; }, e => {
+    REC.sess.flushErr = String(e && e.message || e);
+    logErr('REC_FLUSH', REC.sess.flushErr);
+    // إعادة المحاولة لاحقًا: إن كانت الشموع قد حُفظت فعلًا فستُحسب «مكررة» ولن تتكرر في التخزين
+    batch.forEach(r => { if (!REC.q.has(recPk(r))) REC.q.set(recPk(r), r); else { const k = recKey(r.a, r.tf); REC.pn[k] = Math.max(0, (REC.pn[k] || 0) - 1); } });
+    REC.evq.unshift(...evs, ...more);
+  }).then(() => { if (REC.flushing === p) REC.flushing = null; });
+  REC.flushing = p;
+  return p;
+}
+// فحص الفجوات من البيانات المخزّنة نفسها (المرجع الموثوق، يشمل ما قبل إعادة التحميل)
+function recScanGaps() {
+  return recFlush().then(() => Promise.all(Object.values(REC.series).map(s => REC.backend.times(s.a, s.tf).then(ts => {
+    const g = recGaps(ts, s.tf);
+    return { a: s.a, tf: s.tf, gaps: g.length, missing: g.reduce((x, y) => x + y.n, 0), largest: g.reduce((x, y) => Math.max(x, y.n), 0) };
+  })))).then(out => { REC.scan = { at: Date.now(), out }; return out; });
+}
+
+// ---- التصدير والاستيراد ----
+const recLine = r => JSON.stringify(Object.fromEntries(RECF.map(f => [f, r[f]])));
+const isoOf = s => new Date(s * 1000).toISOString();
+const CSVF = ['asset', 'tf', 'open_time_utc', 'open_ts', 'close_ts', 'open', 'high', 'low', 'close', 'ticks', 'first_tick_ts', 'last_tick_ts', 'max_tick_gap_s', 'close_tick_ts', 'src', 'recorded_ms', 'schema'];
+function recExport(fmt = 'jsonl', a = null, tf = null) {
+  let list = [];
+  // نختار السلاسل بعد انتهاء الحفظ (وإلا تُستبعد شموع كانت في قائمة الانتظار لحظة الطلب)
+  return recFlush().then(() => {
+    list = Object.values(REC.series).filter(s => (!a || s.a === a) && (!tf || s.tf === tf))
+      .sort((x, y) => x.a < y.a ? -1 : x.a > y.a ? 1 : x.tf - y.tf);
+    return Promise.all(list.map(s => REC.backend.range(s.a, s.tf)));
+  }).then(all => {
+    const series = [], rows = [];
+    all.forEach((recs, i) => {
+      const g = recGaps(recs.map(r => r.t), list[i].tf);
+      series.push({ a: list[i].a, tf: list[i].tf, count: recs.length, first: recs.length ? recs[0].t : null, last: recs.length ? recs[recs.length - 1].t : null, gaps: g.length, missing: g.reduce((x, y) => x + y.n, 0) });
+      recs.forEach(r => rows.push(r));
+    });
+    let text;
+    if (fmt === 'csv') {
+      text = CSVF.join(',') + '\n' + rows.map(r => [r.a, r.tf, isoOf(r.t), r.t, r.tc, r.o, r.h, r.l, r.c, r.n, r.ft, r.lt, r.mg, r.cts, r.src, r.rx, r.v].join(',')).join('\n') + (rows.length ? '\n' : '');
+    } else {
+      const body = rows.map(recLine).join('\n');
+      const head = { type: 'wsnf-candles', schema: REC_SCHEMA, app: 'wsnf smart bot', version: SCRIPT_VERSION, exportedAt: new Date().toISOString(),
+        time: 'unix seconds (UTC, platform clock)', fields: RECF, count: rows.length, series, checksum: 'fnv1a32:' + fnv1a(body) };
+      text = JSON.stringify(head) + '\n' + body + (rows.length ? '\n' : '');
+    }
+    return { text, count: rows.length, series, fmt };
+  });
+}
+// تحويل سطر مستورد إلى سجل بأنواع صحيحة (أي حقل ناقص يجعله يفشل في recCheck)
+function recNormalize(x) {
+  const num = v => (v === '' || v === null || v === undefined) ? NaN : +v;
+  return { a: String(x.a == null ? '' : x.a), tf: num(x.tf), t: num(x.t), tc: num(x.tc), o: num(x.o), h: num(x.h), l: num(x.l), c: num(x.c), n: num(x.n),
+    ft: num(x.ft), lt: num(x.lt), mg: num(x.mg), cts: num(x.cts), src: String(x.src || ''), rx: Number.isFinite(num(x.rx)) ? num(x.rx) : 0, v: num(x.v) };
+}
+function recParse(text) {
+  const lines = String(text).split(/\r?\n/).filter(x => x.trim() !== '');
+  if (!lines.length) throw new Error('الملف فارغ');
+  const recs = [];
+  if (lines[0].trim().startsWith('{')) {
+    let head;
+    try { head = JSON.parse(lines[0]); } catch (e) { throw new Error('سطر البيان غير صالح'); }
+    if (!head || head.type !== 'wsnf-candles') throw new Error('ليس ملف شموع من wsnf');
+    if (!(head.schema <= REC_SCHEMA)) throw new Error('إصدار مخطط أحدث من المدعوم: ' + head.schema);
+    const body = lines.slice(1);
+    if (head.checksum && head.checksum !== 'fnv1a32:' + fnv1a(body.join('\n'))) throw new Error('الـchecksum لا يطابق: الملف تالف أو معدّل، رُفض بالكامل');
+    if (Number.isFinite(head.count) && head.count !== body.length) throw new Error('عدد الأسطر (' + body.length + ') لا يطابق البيان (' + head.count + ')');
+    body.forEach((ln, i) => { try { recs.push(recNormalize(JSON.parse(ln))); } catch (e) { recs.push({ __bad: 'سطر JSON غير صالح ' + (i + 2) }); } });
+    return { fmt: 'jsonl', recs };
+  }
+  const cols = lines[0].split(',').map(x => x.trim());
+  const ix = f => cols.indexOf(f);
+  if (ix('asset') < 0 || ix('open_ts') < 0 || ix('close') < 0) throw new Error('ترويسة CSV غير معروفة');
+  const map = { a: 'asset', tf: 'tf', t: 'open_ts', tc: 'close_ts', o: 'open', h: 'high', l: 'low', c: 'close', n: 'ticks', ft: 'first_tick_ts', lt: 'last_tick_ts', mg: 'max_tick_gap_s', cts: 'close_tick_ts', src: 'src', rx: 'recorded_ms', v: 'schema' };
+  lines.slice(1).forEach(ln => {
+    const v = ln.split(','), o = {};
+    for (const f in map) o[f] = ix(map[f]) >= 0 ? v[ix(map[f])] : undefined;
+    recs.push(recNormalize(o));
+  });
+  return { fmt: 'csv', recs };
+}
+function recImport(text) {
+  let parsed;
+  try { parsed = recParse(text); } catch (e) { return Promise.reject(e); }
+  const out = { fmt: parsed.fmt, read: parsed.recs.length, valid: 0, rejected: 0, reasons: {}, added: 0, replaced: 0, dup: 0, conflicts: 0 };
+  const good = [];
+  for (const r of parsed.recs) {
+    const why = r.__bad || recCheck(r);
+    if (why) { out.rejected++; out.reasons[why] = (out.reasons[why] || 0) + 1; } else good.push(r);
+  }
+  out.valid = good.length;
+  const uniq = new Map();
+  for (const r of good) { const ex = uniq.get(recPk(r)); if (!ex || recDecide(ex, r) === 'replaced') uniq.set(recPk(r), r); else out.dup++; }
+  const list = [...uniq.values()], CH = 2000;
+  let chain = (REC.openP || Promise.resolve()).then(() => recFlush());
+  for (let i = 0; i < list.length; i += CH) {
+    const part = list.slice(i, i + CH);
+    chain = chain.then(() => REC.backend.putMany(part)).then(res => res.forEach(x => { out[x.d === 'conflict' ? 'conflicts' : x.d]++; }));
+  }
+  return chain.then(() => recRefreshSeries()).then(() => {
+    recEvent({ type: 'import', fmt: out.fmt, read: out.read, added: out.added, rejected: out.rejected });
+    return recFlush();
+  }).then(() => out);
+}
+function recClear() {
+  REC.q.clear(); REC.evq = []; REC.pn = {};
+  return (REC.flushing || Promise.resolve()).then(() => REC.backend.clear()).then(() => {
+    REC.series = {}; REC.lastT = {}; REC.pn = {}; REC.scan = null; REC.events = [];
+    recEvent({ type: 'clear' });
+    return recFlush();
+  });
+}
+// تقدير الحجم: يُقاس فعليًا في اختبار المتصفح (navigator.storage.estimate)؛ هنا تقدير للعرض فقط
+const REC_BYTES = 300;
+
 // ================= اعتراض WebSocket (قراءة فقط) =================
 let expect = null, expectWs = null, chain = Promise.resolve();
 const toText = d => d instanceof Blob ? d.text() : Promise.resolve(new TextDecoder().decode(d));
@@ -1602,6 +2012,8 @@ function handle(kind, j) {
       j.history.forEach(x => feedTick(a, +x[0], +x[1]));
       S.loading = false;
       S.loadedCount = j.history.length;
+      recEvent({ type: 'hist', a, ticks: j.history.length });
+      recFlush();
       try { rebuildClusters(); evalVariants(); } catch (e) { logErr('VAR_ERR', String(e && e.message || e)); }
     }
   } catch (e) { S.loading = false; logErr('HANDLE', String(e && e.message || e)); }
@@ -1638,6 +2050,7 @@ if (NativeWS) {
     const ws = proto !== undefined ? new NativeWS(url, proto) : new NativeWS(url);
     ws.addEventListener('message', onMsg);
     ws.addEventListener('open', () => {
+      if (S.wsUp === false) recEvent({ type: 'ws_up' });
       liveSockets.add(ws); S.wsUp = true; S.wsUpAt = Date.now();
       if (wsDownTimer) { clearTimeout(wsDownTimer); wsDownTimer = null; } // رجع الاتصال خلال المهلة: لا انقطاع فعلي
     });
@@ -1647,6 +2060,7 @@ if (NativeWS) {
       if (!wasLive) return;            // اتصال فشل قبل أن يفتح: ليس انقطاعًا جديدًا
       if (liveSockets.size) return;    // ما زال هناك اتصال حي آخر
       S.wsUp = false;                  // نوقف الدخول فورًا
+      S.wsCloseAt = Date.now();        // المسجّل يرفض أي شمعة حية كانت مفتوحة لحظة الانقطاع
       if (wsDownTimer) return;         // الانقطاع مسجَّل قيد المهلة أصلًا
       wsDownTimer = setTimeout(() => { // لكن لا نسجّل خطأ ولا نُلغي صفقة إلا لو طال الانقطاع
         wsDownTimer = null;
@@ -1662,6 +2076,7 @@ if (NativeWS) {
 }
 restore();
 loadSV();
+recInit();
 CFG.auto = false; // تأكيد إضافي: كل جلسة تبدأ والدخول الآلي الافتراضي متوقف
 idbRestore();
 
@@ -1786,13 +2201,14 @@ function drawChart(cv) {
 
 // ================= النسخ الاحتياطي =================
 function buildExport() { return { app: 'wsnf smart bot', v: VERSION, at: Date.now(), live: snapshot(), log: S.log.slice(0, 200), journal: S.journal, cfg: cfgSnap() }; }
-function download(name, obj, pretty) {
-  const blob = new Blob([JSON.stringify(obj, null, pretty ? 1 : 0)], { type: 'application/json' });
+function download(name, obj, pretty) { downloadText(name, JSON.stringify(obj, null, pretty ? 1 : 0), 'application/json'); }
+function downloadText(name, text, mime) {
+  const blob = new Blob([text], { type: mime || 'text/plain' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = name;
   document.body.appendChild(a); a.click(); a.remove(); // تنزيل ملف فقط
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 function exportData() { download('wsnf-memory-' + new Date().toISOString().slice(0, 10) + '.json', buildExport()); }
 function importData(text) {
@@ -1808,8 +2224,9 @@ function importData(text) {
 }
 function diagnostics() {
   return {
-    app: 'wsnf diag', v: '3.4', at: Date.now(), simOnly: SIM_ONLY, errors: S.errors, trace: S.trace, decision: S.decision,
+    app: 'wsnf diag', v: SCRIPT_VERSION, at: Date.now(), simOnly: SIM_ONLY, errors: S.errors, trace: S.trace, decision: S.decision,
     cfg: CFG, audit: S.audit, adopted: S.adopted, corr: corrReport(100, .8), simSummary: simSummary(),
+    rec: { on: REC.on, kind: REC.kind, err: REC.err, ready: REC.ready, queue: REC.q.size, series: Object.values(REC.series), sess: REC.sess },
     sim: { auto: CFG.auto, open: !!S.open, pending: !!S.pending, paused: Date.now() < S.pausedUntil, hourly: S.hourly.length },
     state: { halted: S.halted, why: S.haltWhy, wsUp: S.wsUp, shown: readShownAsset(), cur: S.cur, lock: S.lock, net: S.net, storeErr: S.storeErr }
   };
@@ -1959,13 +2376,14 @@ const HTML = `
 </div>
 <div class="full" id="full">
 <header>
-  <div class="brand">${letters(NAME)}<i class="dot"></i><small>v3.4 · محاكاة فقط</small></div>
+  <div class="brand">${letters(NAME)}<i class="dot"></i><small>v3.5 · محاكاة فقط</small></div>
   <nav class="nav" id="nav">
     <button data-p="home" class="on">الرئيسية</button>
     <button data-p="chart">الشارت</button>
     <button data-p="strat">الاستراتيجيات</button>
     <button data-p="lab">المختبر</button>
     <button data-p="log">السجل</button>
+    <button data-p="rec">المسجّل</button>
     <button data-p="mem">الذاكرة</button>
     <button data-p="err">الأخطاء</button>
   </nav>
@@ -2114,6 +2532,36 @@ const HTML = `
     </div>
   </div>
 </section>
+<section class="page p-rec" data-page="rec" style="grid-template-columns:1fr">
+  <div class="card">
+    <h3>مسجّل الشموع (محلي — للمحاكاة والتحليل فقط)</h3>
+    <div class="stats" id="recSt"></div>
+    <div class="row">
+      <button class="tgl" id="recOn">التسجيل: يعمل</button>
+      <button id="recExpJ">تصدير الكل JSONL</button>
+      <button id="recExpC">تصدير الكل CSV</button>
+      <button id="recExpCur">تصدير الأصل الحالي JSONL</button>
+      <button id="recImp">استيراد (JSONL/CSV)</button>
+      <input type="file" id="recImpFile" accept=".jsonl,.json,.csv,text/plain" style="display:none">
+      <button id="recScan">فحص الفجوات المخزّنة</button>
+    </div>
+    <div class="note" id="recMsg"></div>
+    <div class="note">تُحفظ كل شمعة مكتملة بعد انتهائها فقط في قاعدة IndexedDB منفصلة داخل متصفحك. لا يُرسل شيء خارج المتصفح. الشموع الناقصة تُرفض ولا تُخزَّن، والمكررة لا تُكرَّر (التسجيل الحي يستبدل التاريخي للشمعة نفسها). مصدر الأسعار تيكات المنصة: دقة القمة/القاع محدودة بمعدل التيكات (عددها محفوظ مع كل شمعة).</div>
+  </div>
+  <div class="card">
+    <h3>السلاسل المحفوظة (أصل × إطار)</h3>
+    <div class="scroll"><table><thead><tr><th>الأصل</th><th>الإطار</th><th>الشموع</th><th>من (UTC)</th><th>إلى (UTC)</th><th>فجوات</th><th>شموع مفقودة</th></tr></thead><tbody id="recSer"></tbody></table></div>
+  </div>
+  <div class="card">
+    <h3>أسباب رفض الشموع (هذه الجلسة)</h3>
+    <div class="scroll"><table><thead><tr><th>السبب</th><th>العدد</th></tr></thead><tbody id="recRej"></tbody></table></div>
+  </div>
+  <div class="card">
+    <h3>أحداث التسجيل (الفجوات، الانقطاع، التاريخ...)</h3>
+    <div class="scroll"><table><thead><tr><th>الوقت</th><th>الحدث</th><th>التفاصيل</th></tr></thead><tbody id="recEv"></tbody></table></div>
+    <div class="row"><button class="btn-danger" id="recClr">مسح كل الشموع المسجّلة</button></div>
+  </div>
+</section>
 <section class="page p-mem" data-page="mem" style="grid-template-columns:1fr">
   <div class="card">
     <h3>ذاكرة البوت</h3>
@@ -2216,6 +2664,41 @@ function build() {
   };
 
   $('exp').onclick = () => exportData();
+  // ---- المسجّل ----
+  const recMsg = (t, cls) => { $('recMsg').innerHTML = '<span class="' + (cls || '') + '">' + ESC(t) + '</span>'; };
+  const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  const recDl = (fmt, a) => {
+    recMsg('جارٍ التصدير...');
+    recExport(fmt, a || null, a ? CFG.tf : null).then(x => {
+      if (!x.count) { recMsg('لا توجد شموع للتصدير', 'warn'); return; }
+      downloadText('wsnf-candles-' + (a ? a + '-' + CFG.tf + 's-' : '') + stamp() + '.' + (fmt === 'csv' ? 'csv' : 'jsonl'), x.text, fmt === 'csv' ? 'text/csv' : 'application/x-ndjson');
+      recMsg('صُدّرت ' + x.count + ' شمعة (' + x.series.length + ' سلسلة)', 'w');
+    }).catch(e => recMsg('فشل التصدير: ' + (e && e.message || e), 'l'));
+  };
+  $('recOn').onclick = () => { recSetOn(!REC.on); paint(); };
+  $('recExpJ').onclick = () => recDl('jsonl');
+  $('recExpC').onclick = () => recDl('csv');
+  $('recExpCur').onclick = () => { if (!S.cur) recMsg('لا يوجد أصل حالي', 'warn'); else recDl('jsonl', S.cur); };
+  $('recImp').onclick = () => $('recImpFile').click();
+  $('recImpFile').onchange = e => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      recMsg('جارٍ الاستيراد...');
+      recImport(String(rd.result)).then(o => {
+        const rs = Object.entries(o.reasons).map(([k, v]) => k + ' ×' + v).join('، ');
+        recMsg('قُرئ ' + o.read + ' · أُضيف ' + o.added + ' · استُبدل ' + o.replaced + ' · مكرر ' + o.dup + ' · متعارض (أُبقي الموجود) ' + o.conflicts + ' · مرفوض ' + o.rejected + (rs ? ' (' + rs + ')' : ''), o.rejected ? 'warn' : 'w');
+      }).catch(err => recMsg('رُفض الملف: ' + (err && err.message || err), 'l'));
+    };
+    rd.readAsText(f);
+    e.target.value = '';
+  };
+  $('recScan').onclick = () => { recMsg('جارٍ الفحص...'); recScanGaps().then(o => recMsg('اكتمل فحص ' + o.length + ' سلسلة', 'w')).catch(e => recMsg('فشل الفحص: ' + (e && e.message || e), 'l')); };
+  $('recClr').onclick = () => {
+    if (!confirm('سيُحذف كل ما سجّله المسجّل من شموع وأحداث نهائيًا. صدّر نسخة أولًا إن احتجتها. متابعة؟')) return;
+    recClear().then(() => recMsg('مُسحت الشموع المسجّلة', 'warn'));
+  };
   $('imp').onclick = () => $('impFile').click();
   $('impFile').onchange = e => {
     const f = e.target.files && e.target.files[0];
@@ -2250,6 +2733,36 @@ function build() {
   S.onResult = win => showFlash(win ? 'win' : 'loss', win ? '✔ ربح افتراضي' : '✖ خسارة افتراضية', 'نتيجة محاكاة — ليست صفقة حقيقية');
 
   let lastLab = '';
+  const evLabel = { start: 'بدء', gap: 'فجوة', ws_down: 'انقطاع الاتصال', ws_up: 'عودة الاتصال', stale: 'تقادم السعر', reject: 'رفض شمعة', hist: 'تاريخ من المنصة', tf: 'تغيير الإطار', cap: 'بلوغ الحد', import: 'استيراد', clear: 'مسح', rec_on: 'تشغيل التسجيل', rec_off: 'إيقاف التسجيل' };
+  const utc = s => s === null || s === undefined ? '-' : new Date(s * 1000).toISOString().slice(0, 16).replace('T', ' ');
+  function paintRec() {
+    const ss = REC.sess, ser = Object.values(REC.series), tot = ser.reduce((a, s) => a + s.count, 0);
+    $('recOn').textContent = 'التسجيل: ' + (REC.on ? 'يعمل' : 'متوقف');
+    $('recOn').classList.toggle('on', REC.on);
+    $('recSt').innerHTML =
+      `<div class="st"><span>الحالة</span><b class="${REC.on && REC.ready && !REC.err ? 'w' : 'l'}">${!REC.on ? 'متوقف' : !REC.ready ? 'يُهيّأ...' : REC.err ? 'تحذير' : 'يسجّل'}</b><small>${ESC(REC.err || (REC.kind === 'indexeddb' ? 'IndexedDB (دائم)' : REC.kind))}</small></div>` +
+      `<div class="st"><span>الشموع المحفوظة</span><b>${tot}</b><small>${ser.length} سلسلة · ≈ ${(tot * REC_BYTES / 1048576).toFixed(1)} MB (تقدير)</small></div>` +
+      `<div class="st"><span>آخر حفظ</span><b>${ss.lastFlush ? new Date(ss.lastFlush).toTimeString().slice(0, 8) : '-'}</b><small>بانتظار الحفظ: ${REC.q.size}${ss.flushErr ? ' · خطأ: ' + ESC(ss.flushErr) : ''}</small></div>` +
+      `<div class="st"><span>هذه الجلسة</span><b>${ss.added}</b><small>جديدة · استُبدلت ${ss.replaced} · مكررة ${ss.dup} · متعارضة ${ss.conflicts}${ss.conflicts ? ' (أقصى فرق ' + (ss.maxDiff * 100).toFixed(4) + '%)' : ''}</small></div>` +
+      `<div class="st"><span>مرفوضة (ناقصة/غير صالحة)</span><b class="${ss.rejected ? 'warn' : ''}">${ss.rejected}</b></div>` +
+      `<div class="st"><span>فجوات مكتشفة حيًا</span><b class="${ss.gaps ? 'warn' : ''}">${ss.gaps}</b>${ss.dropped ? '<small class="l">سجلات أُسقطت: ' + ss.dropped + '</small>' : ''}</div>`;
+    const sc = REC.scan ? Object.fromEntries(REC.scan.out.map(x => [recKey(x.a, x.tf), x])) : {};
+    $('recSer').innerHTML = ser.sort((x, y) => x.a < y.a ? -1 : x.a > y.a ? 1 : x.tf - y.tf).map(s => {
+      const g = sc[recKey(s.a, s.tf)];
+      return `<tr><td>${ESC(s.a)}</td><td>${s.tf} ث</td><td>${s.count}${s.capped ? ' <span class="chip c-d">الحد</span>' : ''}</td><td>${utc(s.first)}</td><td>${utc(s.last)}</td><td>${g ? g.gaps : '?'}</td><td>${g ? g.missing : '?'}</td></tr>`;
+    }).join('') || '<tr><td colspan="7" class="note">لا شموع محفوظة بعد</td></tr>';
+    $('recRej').innerHTML = Object.entries(ss.reasons).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<tr><td>${ESC(k)}</td><td>${v}</td></tr>`).join('') || '<tr><td colspan="2" class="note">لا شيء</td></tr>';
+    $('recEv').innerHTML = REC.events.slice(0, 40).map(e => {
+      const d = e.type === 'gap' ? e.a + ' ' + e.tf + 'ث: ' + utc(e.from) + ' → ' + utc(e.to) + ' (' + e.n + ' شمعة)'
+        : e.type === 'reject' ? e.a + ' ' + utc(e.t) + ': ' + e.why
+        : e.type === 'hist' ? e.a + ': ' + e.ticks + ' تيك'
+        : e.type === 'stale' ? e.a + ': ' + e.age + ' ث بلا سعر'
+        : e.type === 'tf' ? e.from + ' → ' + e.to + ' ث'
+        : e.type === 'import' ? e.fmt + ': أُضيف ' + e.added + ' من ' + e.read + ' (مرفوض ' + e.rejected + ')'
+        : e.type === 'cap' ? e.a + ' ' + e.tf + 'ث: ' + e.n : e.store || '';
+      return `<tr><td>${new Date(e.at).toTimeString().slice(0, 8)}</td><td>${evLabel[e.type] || ESC(e.type)}</td><td class="note">${ESC(d)}</td></tr>`;
+    }).join('') || '<tr><td colspan="3" class="note">لا أحداث بعد</td></tr>';
+  }
   function paint() {
     const V = view(), r = V.r, d = r ? r.d : 'none';
     const col = d === 'call' ? '#3ddbb0' : d === 'put' ? '#ff6b7a' : '#f5c45e';
@@ -2271,6 +2784,7 @@ function build() {
     $('cdt').textContent = V.cd === null ? '' : 'تُغلق الشمعة بعد ' + Math.ceil(V.cd) + ' ث';
     $('chips').innerHTML =
       '<span class="chip c-u">🛡 محاكاة فقط</span>' +
+      (REC.on ? `<span class="chip ${REC.err || REC.sess.flushErr ? 'c-d' : 'c-m'}">⏺ تسجيل ${Object.values(REC.series).reduce((a, s) => a + s.count, 0)}</span>` : '<span class="chip c-g">التسجيل متوقف</span>') +
       (CFG.auto ? '<span class="chip c-g">صفقات افتراضية تلقائية</span>' : '<span class="chip c-m">إشارات فقط</span>') +
       `<span class="chip ${V.asset ? 'c-u' : 'c-d'}">${V.asset ? '✓ بيانات حية' : 'لا بيانات'}</span>` +
       (V.loaded ? `<span class="chip c-m">تاريخ: ${V.loaded}</span>` : '') +
@@ -2334,6 +2848,7 @@ function build() {
     $('memAt').textContent = V.savedAt ? new Date(V.savedAt).toLocaleString('ar-SA') : 'لم يُحفظ بعد';
     $('memBest').textContent = V.best ? V.best.k + '+ بدقة ' + pc(V.best.acc, 1) + ' من ' + V.best.n : 'تحتاج عينة أكبر';
     $('memLog').textContent = V.logCount;
+    if (sh.querySelector('.p-rec.on')) paintRec();
     if (sh.querySelector('.p-lab.on')) {
       const L = labView(), key = L.q + L.h + L.hn + L.rm + L.v + L.cx + L.scT + L.vt + L.cr + L.ab + L.x + L.j;
       if (key !== lastLab) {
@@ -2364,6 +2879,7 @@ if (window.__WSNF_TEST === true) window.__WSNF25 = {
   maybeTrade, placeOrder, confirmOrder, watchdog, finishOpen, settle, voidTrade, failPending, onWsDown, killSwitch,
   setTf, resetLearning, saveAll, buildExport, exportData, importData, view, resLabel, simSummary,
   corrReport, corrHistTotal, diagnostics, restore, BE, BEA, payoutOf, setPayout, wil, bestBucket, GRP, IND, resample,
-  decide, EXPS, HZ, IMP, IMPK, vk, evalVariants, variantVerdict, poolS, cellOf, bestHz, stratMatrix, rebuildClusters, pairRho, clusterOf, loadSV, qk, marketContext, ctxPermit, breakoutScan, reversalScan, adxOf, swings, dataQuality, falseSignals, rawVotes, labView, adoptExp, resetCfg, zAgg, expReady, cleanJournal, cleanLog, idbRestore, mirror, IDB, wtR, snapshot, applySnapshot, applyCfg, cfgSnap, reasonsOf, liveBlock
+  decide, EXPS, HZ, IMP, IMPK, vk, evalVariants, variantVerdict, poolS, cellOf, bestHz, stratMatrix, rebuildClusters, pairRho, clusterOf, loadSV, qk, marketContext, ctxPermit, breakoutScan, reversalScan, adxOf, swings, dataQuality, falseSignals, rawVotes, labView, adoptExp, resetCfg, zAgg, expReady, cleanJournal, cleanLog, idbRestore, mirror, IDB, wtR, snapshot, applySnapshot, applyCfg, cfgSnap, reasonsOf, liveBlock,
+  REC, RECF, recCheck, recMake, recDecide, recGaps, recOnCandle, recEnqueue, recFlush, recScanGaps, recExport, recImport, recParse, recClear, recSetOn, recInit, recRefreshSeries, recMemBackend, fnv1a
 };
 })();

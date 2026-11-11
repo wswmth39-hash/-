@@ -4,7 +4,7 @@
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const files = ['safety', 'bugs', 'regression'].concat(process.argv.includes('--stats') ? ['stats'] : []).map(f => path.join(__dirname, f + '.test.js'));
+const files = ['safety', 'bugs', 'regression', 'recorder'].concat(process.argv.includes('--stats') ? ['stats'] : []).map(f => path.join(__dirname, f + '.test.js'));
 function run(target) {
   const r = spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...files], { env: { ...process.env, WSNF_TARGET: target }, encoding: 'utf8', maxBuffer: 1e8 });
   const res = {};

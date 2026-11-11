@@ -26,7 +26,7 @@ function fakeEl(props = {}) {
 }
 
 // fakePlatform: يحاكي صفحة المنصة بأزرار CALL/PUT وخانة مبلغ واسم الأصل. أي نقر يُسجَّل في clicks.
-function load({ file = target(), store = {}, now = 1.7e12, platform = null, ui = false } = {}) {
+function load({ file = target(), store = {}, now = 1.7e12, platform = null, ui = false, recMem = null } = {}) {
   let clock = now;
   const sockets = [];
   const els = platform ? {
@@ -72,6 +72,7 @@ function load({ file = target(), store = {}, now = 1.7e12, platform = null, ui =
   ctx.window = ctx;
   ctx.__WSNF25_NOUI = !ui;
   ctx.__WSNF_TEST = true; // النسخة المعدّلة لا تكشف واجهتها الداخلية إلا في وضع الاختبار
+  if (recMem) ctx.__WSNF_REC_MEM = recMem; // مخزن مسجّل مشترك بين «إعادات التحميل» في الاختبار
   ctx.addEventListener = () => {};
   ctx.WebSocket = FakeWS;
   ctx.indexedDB = undefined;
