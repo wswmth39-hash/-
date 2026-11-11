@@ -220,7 +220,7 @@ test('D8 المسجّل لا يؤثر على التحليل: القرارات م
   const run = async on => {
     const B = await boot(), out = [];
     if (!on) B.W.recSetOn(false);
-    B.W.S.onFlash = e => out.push([e.ct, e.dir, e.conf].join());
+    H.subscribe(B.W, 'signal', e => out.push([e.ct, e.dir, e.conf].join()));
     H.runFeed(B, A, ticks, 21600);
     await B.W.recFlush();
     return { out, n: (await B.W.REC.backend.range(A, TF)).length };

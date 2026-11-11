@@ -4,6 +4,8 @@
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+// --ref <target>: النسخة المرجعية للمقارنة (original = v3.3 الأصلية، v35 = قبل المرحلة C)
+const ri = process.argv.indexOf('--ref'), REF = ri > 0 ? process.argv[ri + 1] : 'original';
 const files = ['safety', 'bugs', 'regression', 'recorder'].concat(process.argv.includes('--stats') ? ['stats'] : []).map(f => path.join(__dirname, f + '.test.js'));
 function run(target) {
   const r = spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...files], { env: { ...process.env, WSNF_TARGET: target }, encoding: 'utf8', maxBuffer: 1e8 });
@@ -15,12 +17,12 @@ function run(target) {
   const st = (r.stdout.match(/\[stats\].*/g) || []).join(' ');
   return { res, st };
 }
-const before = run('original'), after = run('current');
+const before = run(REF), after = run('current');
 const names = [...new Set([...Object.keys(after.res), ...Object.keys(before.res)])];
 const mark = v => v === undefined ? '—' : v ? 'PASS' : 'FAIL';
 const rows = names.map(n => `| ${n} | ${mark(before.res[n])} | ${mark(after.res[n])} |`);
 const count = o => Object.values(o).filter(Boolean).length + '/' + Object.keys(o).length;
-const md = ['| الاختبار | قبل (v3.3 الأصلية) | بعد (المعدّلة) |', '|---|---|---|', ...rows, '', `**الإجمالي:** قبل ${count(before.res)} — بعد ${count(after.res)}`,
+const md = ['| الاختبار | قبل (' + (REF === 'original' ? 'v3.3 الأصلية' : REF === 'v35' ? 'v3.5' : REF) + ') | بعد (v3.6) |', '|---|---|---|', ...rows, '', `**الإجمالي:** قبل ${count(before.res)} — بعد ${count(after.res)}`,
   before.st ? '\nقبل: `' + before.st + '`' : '', after.st ? '\nبعد: `' + after.st + '`' : ''].join('\n');
 console.log(md);
 const i = process.argv.indexOf('--md');

@@ -41,7 +41,7 @@ test('R4 لا تسرّب للمستقبل: تغيير البيانات بعد ل
   const decisions = ticks => {
     const B = H.load(), out = [];
     // نسجّل كل قرار لحظة صدوره (السجل نفسه محدود بـ 200 إدخال)
-    B.W.S.onFlash = e => { if (e.ct + 60 <= T) out.push([e.ct, e.dir, e.conf].join()); };
+    H.subscribe(B.W, 'signal', e => { if (e.ct + 60 <= T) out.push([e.ct, e.dir, e.conf].join()); });
     H.runFeed(B, ASSET, ticks, 21600);
     return out;
   };

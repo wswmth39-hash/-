@@ -1,0 +1,12 @@
+// ==UserScript==
+// @name         wsnf smart bot v3.6 (simulation only + candle recorder)
+// @namespace    local.wsnf.v34sim
+// @version      3.6.0
+// @description  تحليل وإشارات وصفقات افتراضية فقط (Paper Trading) + مسجّل شموع محلي. لا ينقر أي زر في المنصة ولا يرسل أي أمر.
+// @match        https://pocketoption.com/*
+// @match        https://*.pocketoption.com/*
+// @run-at       document-start
+// @grant        none
+// ==/UserScript==
+/* v3.6 (المرحلة C): المحرك مفصول عن الواجهة. البنية في docs/ENGINE.md.
+   وضع المحاكاة فقط — إلزامي: لا يوجد كود ينقر أزرار المنصة أو يرسل أوامر. WebSocket للقراءة فقط. */

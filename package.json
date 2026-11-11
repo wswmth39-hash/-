@@ -1,15 +1,17 @@
 {
   "name": "wsnf-smart-bot",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "private": true,
   "description": "WSNF Smart Bot — simulation-only userscript with tests",
   "scripts": {
-    "test": "node --test test/safety.test.js test/bugs.test.js test/regression.test.js test/recorder.test.js",
+    "build": "node build.js",
+    "test": "node build.js --check && node --test test/safety.test.js test/bugs.test.js test/regression.test.js test/recorder.test.js test/engine.test.js test/golden.test.js",
     "test:stats": "node --test test/stats.test.js",
     "test:original": "WSNF_TARGET=original node --test test/safety.test.js test/bugs.test.js test/regression.test.js",
     "compare": "node test/compare.js",
     "compare:all": "node test/compare.js --stats --md docs/TEST_RESULTS.md",
-    "test:browser": "node test/ui.smoke.js docs/ui_v3.5.png && node test/recorder.browser.js docs/ui_recorder.png"
+    "test:browser": "node test/ui.smoke.js docs/ui_v3.6.png && node test/recorder.browser.js docs/ui_recorder.png && node test/ui.engine.browser.js",
+    "compare:c": "node test/compare.js --ref v35 --stats --md docs/TEST_RESULTS_C.md"
   },
   "engines": { "node": ">=18" }
 }

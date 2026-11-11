@@ -8,7 +8,8 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const FILES = {
   original: path.join(ROOT, 'original', 'wsnf_v3.3.user.js'),
-  current: path.join(ROOT, 'src', 'wsnf.user.js')
+  v35: path.join(ROOT, 'backup', 'wsnf_v3.5.user.js'),       // آخر نسخة قبل فصل المحرك (المرحلة C) — مرجع الاختبار الذهبي
+  current: path.join(ROOT, 'dist', 'wsnf.user.js')            // الناتج المبني من src/ (node build.js)
 };
 const target = () => FILES[process.env.WSNF_TARGET || 'current'] || process.env.WSNF_TARGET;
 const source = (file = target()) => fs.readFileSync(file, 'utf8');
@@ -90,10 +91,11 @@ function load({ file = target(), store = {}, now = 1.7e12, platform = null, ui =
 function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
 function gauss(r) { return Math.sqrt(-2 * Math.log(r() + 1e-12)) * Math.cos(2 * Math.PI * r()); }
 // تيك كل ثانية من حركة عشوائية (لا يمكن التنبؤ بها)
-function randomWalkTicks(seed, seconds, { t0 = 1.7e9, p0 = 1.1, vol = 4e-5, drift = 0 } = {}) {
-  const r = rng(seed), out = [];
+// jitter: تذبذب توقيت التيك داخل الثانية (0 = كل ثانية + 0.3 بالضبط)، أكثر واقعية ويكشف أخطاء دقة الوقت
+function randomWalkTicks(seed, seconds, { t0 = 1.7e9, p0 = 1.1, vol = 4e-5, drift = 0, jitter = 0 } = {}) {
+  const r = rng(seed), rj = rng(seed ^ 0x5bd1e995), out = [];
   let p = p0;
-  for (let s = 0; s < seconds; s++) { p *= 1 + drift + gauss(r) * vol; out.push([t0 + s + 0.3, +p.toFixed(5)]); }
+  for (let s = 0; s < seconds; s++) { p *= 1 + drift + gauss(r) * vol; out.push([+(t0 + s + 0.3 + (jitter ? (rj() - .5) * jitter : 0)).toFixed(3), +p.toFixed(5)]); }
   return out;
 }
 const candle = (t, o, h, l, c) => ({ t, o, h, l, c });
@@ -105,4 +107,10 @@ function runFeed(B, asset, ticks, histN) {
   for (const [ts, px] of ticks.slice(histN)) { B.setNow(ts * 1000); B.W.feedTick(asset, ts, px); }
 }
 
-module.exports = { load, FILES, target, source, rng, gauss, randomWalkTicks, candle, runFeed, fakeEl };
+// الاشتراك في أحداث المحرك: v3.6 عبر ناقل الأحداث (on)، والنسخ الأقدم عبر S.onFlash/S.onResult
+function subscribe(W, type, fn) {
+  if (typeof W.on === 'function') return W.on(type, fn);
+  W.S[type === 'signal' ? 'onFlash' : 'onResult'] = fn;
+}
+
+module.exports = { subscribe, load, FILES, target, source, rng, gauss, randomWalkTicks, candle, runFeed, fakeEl };
