@@ -1,0 +1,14 @@
+{
+  "name": "wsnf-smart-bot",
+  "version": "3.4.0",
+  "private": true,
+  "description": "WSNF Smart Bot — simulation-only userscript with tests",
+  "scripts": {
+    "test": "node --test test/safety.test.js test/bugs.test.js test/regression.test.js",
+    "test:stats": "node --test test/stats.test.js",
+    "test:original": "WSNF_TARGET=original node --test test/safety.test.js test/bugs.test.js test/regression.test.js",
+    "compare": "node test/compare.js",
+    "compare:all": "node test/compare.js --stats --md docs/TEST_RESULTS.md"
+  },
+  "engines": { "node": ">=18" }
+}
