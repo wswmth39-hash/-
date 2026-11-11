@@ -21,7 +21,7 @@ function createState() {
     contigN: 30, payoutBy: {},
     recMaxPerSeries: 500000, recMaxGapFrac: .5,
     // v4: تغذية البيانات — «حية» حتى 3 ث من آخر تيك صالح، «متأخرة» حتى maxTickAgeMs، «قديمة» حتى دقيقة، ثم «غير متاحة»
-    feedLiveMs: 3000, feedUnavailableMs: 60000, feedWaitMs: 15000, maxPriceJump: .2, maxFutureS: 600, reloadAdviceMs: 60000, maxAssets: 8
+    feedLiveMs: 3000, feedUnavailableMs: 60000, feedWaitMs: 15000, maxPriceJump: .2, feedReceivingMs: 10000, reloadAdviceMs: 60000, maxAssets: 8
   };
   const S = {
     candles: {}, P: {}, A: {}, sigBy: {}, lastTs: {},

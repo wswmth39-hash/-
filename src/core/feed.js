@@ -4,7 +4,9 @@
 
 const ASSET_RE = /^[A-Za-z0-9_#.\-\/ ]{1,40}$/;
 
-// t: { asset, ts, p } · prev: آخر تيك مقبول لنفس الأصل { ts, p } أو null · opts: { nowSec, maxFutureS, maxJump, jumpWindowS }
+// t: { asset, ts, p } · prev: آخر تيك مقبول لنفس الأصل { ts, p } أو null · opts: { maxJump, jumpWindowS }
+// v4.0.1: لا مقارنة بساعة الجهاز. ساعة المنصة قد تكون مزاحة بثبات (مكتبة lordralinc/pocket_option توثّق −7200 ث)،
+// والمقارنة بساعة الجهاز كانت ترفض كل التيكات في تلك الحالة. التأخر يُقاس نسبيًا في المحرك (createClockTracker).
 // يعيد '' للتيك الصالح أو سبب الرفض. (التكرار يُفحص منفصلًا: ليس خطأ بيانات بل إعادة إرسال.)
 function tickError(t, prev, opts) {
   if (!t || typeof t.asset !== 'string' || !ASSET_RE.test(t.asset)) return 'اسم أصل غير صالح';
@@ -13,7 +15,6 @@ function tickError(t, prev, opts) {
   if (!(t.p > 0)) return 'سعر غير موجب';
   if (t.ts > 1e11) return 'وقت بوحدة غير متوقعة (مللي ثانية؟)'; // لا نحوّل تلقائيًا: لا نخمّن
   if (t.ts < 1e9) return 'وقت غير منطقي (قبل 2001)';
-  if (opts && Number.isFinite(opts.nowSec) && t.ts - opts.nowSec > (opts.maxFutureS || 600)) return 'وقت في المستقبل';
   if (prev && prev.p > 0 && Math.abs(t.ts - prev.ts) <= (opts && opts.jumpWindowS || 300)) {
     const ch = Math.abs(t.p / prev.p - 1);
     if (ch > (opts && opts.maxJump || .2)) return 'قفزة سعرية شاذة (' + Math.round(ch * 100) + '%)';
@@ -62,4 +63,18 @@ function feedStatus(x, t) {
   if (age <= t.unavailableMs) return 'stale';
   return 'unavailable';
 }
-module.exports = { ASSET_RE, tickError, createDedup, FEED_LABEL, feedStatus };
+// متتبع ساعة المنصة: d = وقت الاستلام (الجهاز) − وقت التيك (المنصة) = إزاحة الساعتين + تأخر الشبكة.
+// أصغر d خلال النافذة ≈ الإزاحة الثابتة (أقل تأخر)، والتأخر الحالي = d − الأصغر. لا يفترض أن الساعتين متطابقتان.
+function createClockTracker(windowMs = 5 * 60e3, maxSamples = 600) {
+  const q = [];
+  return {
+    add(atMs, ts) {
+      q.push({ at: atMs, d: atMs / 1000 - ts });
+      while (q.length > maxSamples || (q.length && atMs - q[0].at > windowMs)) q.shift();
+    },
+    offsetS() { if (!q.length) return null; let m = Infinity; for (const x of q) if (x.d < m) m = x.d; return -m; },   // موجب = المنصة متقدمة
+    latencyMs() { if (!q.length) return null; let m = Infinity; for (const x of q) if (x.d < m) m = x.d; return Math.round((q[q.length - 1].d - m) * 1000); },
+    size() { return q.length; }
+  };
+}
+module.exports = { ASSET_RE, tickError, createDedup, createClockTracker, FEED_LABEL, feedStatus };

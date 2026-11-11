@@ -22,29 +22,35 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const check = (ok, what) => { if (!ok) fails.push(what); };
 
   // ---- خادم المنصة المُحاكى ----
+  // v4.0.1: التدفق الموثّق — successauth بعد الاتصال، ولا أسعار قبل أن يطلب عميل المنصة changeSymbol،
+  // وساعة الخادم متقدمة ساعتين عن الجهاز (TIMESTAMP_OFFSET موثّق في lordralinc/pocket_option). v4.0-dev كانت ترفض كل هذه التيكات.
+  const SHIFT = 7200;
   const now0 = Math.floor(Date.now() / 1000);
-  const T0 = now0 - 3 * 3600 - (now0 % 60);
+  const T0 = now0 - 3600 - (now0 % 60) + SHIFT;
   const all = H.randomWalkTicks(77, 3 * 3600, { t0: T0, jitter: .4 });
   let cursor = 3600;                  // الساعة الأولى تُرسل تاريخًا
   const sentValid = all.slice(0, 3600).map(x => x.slice()); // ما يجب أن يقبله البوت فعلًا
-  let received = 0, conns = 0, mains = [], allWs = [];
+  let received = 0, conns = 0, subs = 0, mains = [], allWs = [];
   const binHist = a => Buffer.from(JSON.stringify(a));
   await page.routeWebSocket(/wss:\/\/po\.test\/socket\.io.*/, ws => {
     conns++;
     const second = /channel=2/.test(ws.url());
     if (!second) mains.push(ws);
     allWs.push(ws);
-    ws.onMessage(m => { received++; if (m === '40') ws.send('40{"sid":"srv"}'); });
+    ws.onMessage(m => {
+      received++;
+      if (m === '40') { ws.send('40{"sid":"srv"}'); ws.send('42["successauth",{"id":"x"}]'); }
+      if (/^42\["changeSymbol"/.test(m) && !second) {
+        ws.__sub = true; subs++;
+        if (subs === 1) { ws.send('451-["updateHistoryNewFast",{"_placeholder":true,"num":0}]'); ws.send(binHist({ asset: A, history: all.slice(0, 3600) })); }
+      }
+    });
     ws.send('0{"sid":"eio","pingInterval":25000,"pingTimeout":20000}');
     if (second) {
       // اتصال ثانٍ يرسل أحداثًا ثنائية لأصل آخر متداخلة مع الأول (اختبار الحالة المستقلة لكل اتصال)
       ws.send('451-["updateStream",{"_placeholder":true,"num":0}]');
-      setTimeout(() => ws.send(Buffer.from(JSON.stringify([[B2, T0 + 3600.5, 0.66]]))), 40);
+      setTimeout(() => ws.send(Buffer.from(JSON.stringify([[B2, T0 + 3600.5, 0.66]]))), 2500); // بعد فحص «قبل الاشتراك»
       return;
-    }
-    if (conns === 1) {
-      ws.send('451-["updateHistoryNewFast",{"_placeholder":true,"num":0}]');
-      ws.send(binHist({ asset: A, history: all.slice(0, 3600) }));
     }
   });
   async function stream(n, perMsg = 20, junk = true) {
@@ -54,7 +60,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       const out = batch.map(([ts, p]) => [A, ts, p]);
       batch.forEach(x => sentValid.push(x));
       if (junk && k % 400 === 0) { out.push([A, out[0][1] * 1000, out[0][2]]); out.push([A, out[0][1], 0]); out.push([A, out[0][1], out[0][2] * 1.9]); } // تالف
-      const live = mains.filter(w => !w.__closed);
+      let live = mains.filter(w => !w.__closed && w.__sub);
+      while (!live.length) { await sleep(50); live = mains.filter(w => !w.__closed && w.__sub); } // لا أسعار بلا اشتراك
       const ws = live[live.length - 1];
       ws.send('42["updateStream",' + JSON.stringify(out) + ']');
       if (junk && k % 300 === 0) ws.send('42["updateStream",' + JSON.stringify(out) + ']'); // تكرار حرفي
@@ -68,7 +75,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     function connect(url) {
       const ws = new WebSocket(url);
       ws.onopen = () => { ws.send('40'); window.__clientSent++; };
-      ws.onmessage = e => { if (e.data === '2') { ws.send('3'); window.__clientSent++; } };
+      ws.onmessage = e => {
+        if (e.data === '2') { ws.send('3'); window.__clientSent++; }
+        // بعد تأكيد الدخول يطلب العميل الأصل الحالي (مثل المنصة عند فتح الشارت) — بعد 1.5 ث لنرى مرحلة «غير مشترك»
+        if (typeof e.data === 'string' && e.data.startsWith('42["successauth"') && !/channel=2/.test(url)) setTimeout(() => { ws.send('42["changeSymbol",{"asset":"${A}","period":60}]'); window.__clientSent++; }, 1500);
+      };
       ws.onclose = () => setTimeout(() => connect(url), 600);  // إعادة اتصال مثل Socket.IO
     }
     connect('wss://po.test/socket.io/?EIO=4&transport=websocket');
@@ -77,12 +88,17 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.addInitScript({ content: 'window.__WSNF_TEST = true;\n' + src });
   await page.goto('https://po.test/');
   await page.waitForFunction(() => window.__WSNF25 && window.__WSNF25.feedView().open >= 2, null, { timeout: 5000 });
-  await page.evaluate(() => { const C = window.__WSNF25.CFG; C.feedLiveMs = 1000; C.maxTickAgeMs = 2500; C.feedUnavailableMs = 8000; C.feedWaitMs = 4000; C.reloadAdviceMs = 1e9; });
+  await page.evaluate(() => { const C = window.__WSNF25.CFG; C.feedLiveMs = 1000; C.maxTickAgeMs = 2500; C.feedUnavailableMs = 8000; C.feedWaitMs = 4000; C.reloadAdviceMs = 1e9; C.feedReceivingMs = 2500; });
+  // قبل الاشتراك: متصل + دخول، والتشخيص يقول إن المنصة لم تطلب أصلًا
+  await page.waitForFunction(() => window.__WSNF25.feedStages().stages.authenticated.ok, null, { timeout: 5000 });
+  R.beforeSub = await page.evaluate(() => { const p = window.__WSNF25.feedStages(); return { s: Object.fromEntries(Object.entries(p.stages).map(([k, v]) => [k, v.ok])), why: p.why }; });
+  check(R.beforeSub.s.connected && R.beforeSub.s.authenticated && !R.beforeSub.s.subscribed && !R.beforeSub.s.valid, 'المراحل قبل الاشتراك: ' + JSON.stringify(R.beforeSub.s));
+  check(/changeSymbol/.test(R.beforeSub.why), 'تشخيص ما قبل الاشتراك: ' + R.beforeSub.why);
   const timeline = [];
   let polling = true;
   const poll = (async () => { while (polling) { const s = await page.evaluate(() => window.__WSNF25.computeStatus()).catch(() => null); if (s && timeline[timeline.length - 1] !== s) timeline.push(s); await sleep(100); } })();
 
-  await sleep(300);
+  await sleep(3000);
   await stream(2400);                         // بث سريع (40 دقيقة من التيكات)
   R.liveDuring = timeline.includes('live');
   await sleep(4500);                          // صمت: حي ← متأخر ← قديم
@@ -91,8 +107,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await sleep(300);
   const downStatus = await page.evaluate(() => window.__WSNF25.computeStatus());
   await page.waitForFunction(() => window.__WSNF25.feedView().open >= 2, null, { timeout: 5000 });  // أعاد العميل الاتصال
+  await page.waitForFunction(() => window.__WSNF25.feedStages().stages.subscribed.ok, null, { timeout: 5000 }); // أعاد العميل الاشتراك
   await stream(1200, 20, false);
   await sleep(500);
+  R.pipelineEnd = await page.evaluate(() => { window.__WSNF25.ui.paint(); const sh = document.getElementById('wsnf25-host').shadowRoot, p = window.__WSNF25.feedStages();
+    return { ok: Object.values(p.stages).every(s => s.ok), why: p.why, sub: p.subAsset, ui: sh.getElementById('feedPipe').innerText.replace(/\s+/g, ' '), uiWhy: sh.getElementById('feedWhy').innerText, clock: window.__WSNF25.feedView().clockOffsetS }; });
+  check(R.pipelineEnd.ok && R.pipelineEnd.why === '' && R.pipelineEnd.sub === A, 'المراحل في النهاية: ' + JSON.stringify(R.pipelineEnd));
+  check((R.pipelineEnd.ui.match(/✔/g) || []).length === 5 && /سليم/.test(R.pipelineEnd.uiWhy), 'الواجهة: ' + R.pipelineEnd.ui + ' | ' + R.pipelineEnd.uiWhy);
+  // الاختبار يبث أسرع من الزمن الحقيقي فتتقدم أوقات التيكات؛ المهم أن الإزاحة قيست ولم تُرفض التيكات
+  check(R.pipelineEnd.clock >= SHIFT - 120, 'إزاحة الساعة المقاسة ' + R.pipelineEnd.clock);
   polling = false; await poll;
 
   const res = await page.evaluate(() => {

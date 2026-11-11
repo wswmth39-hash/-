@@ -49,6 +49,8 @@ function load({ file = target(), store = {}, now = 1.7e12, platform = null, ui =
     constructor(url) { this.url = url; this.ls = {}; sockets.push(this); }
     addEventListener(t, f) { (this.ls[t] = this.ls[t] || []).push(f); }
     emit(t, ev = {}) { (this.ls[t] || []).forEach(f => f({ target: this, ...ev })); }
+    // مثل المتصفح: send على النموذج الأولي. يسجّل ما يُرسل فعلًا ليتحقق الاختبار من الشفافية ومن أن البوت لا يرسل
+    send(d) { this.sent = (this.sent || 0) + 1; (this.out = this.out || []).push(d); }
   }
   const DateC = class extends Date {
     constructor(...a) { a.length ? super(...a) : super(clock); }

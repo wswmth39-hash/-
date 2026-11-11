@@ -175,6 +175,8 @@ const HTML = `
   <div style="display:grid;gap:14px;align-content:start">
     <div class="card" id="feedCard" data-v4>
       <h3>اتصال المنصة وحالة البيانات <span class="chip" id="feedBadge">—</span></h3>
+      <ul class="checks" id="feedPipe"></ul>
+      <div class="note" id="feedWhy"></div>
       <div class="stats" id="feedSt"></div>
       <div class="note" id="feedNote"></div>
     </div>
@@ -376,6 +378,8 @@ const HTML = `
     <h3>رسائل المنصة والأخطاء في البيانات</h3>
     <div class="stats" id="feedMsgs"></div>
     <div class="scroll"><table><thead><tr><th>الحدث</th><th>العدد</th><th>النوع</th></tr></thead><tbody id="feedEv"></tbody></table></div>
+    <div class="scroll"><table><thead><tr><th>رسالة أرسلتها المنصة نفسها (الاسم فقط)</th><th>العدد</th></tr></thead><tbody id="feedOut"></tbody></table></div>
+    <div class="note" id="feedUnp"></div>
     <div class="scroll"><table><thead><tr><th>سبب رفض التيك</th><th>العدد</th></tr></thead><tbody id="feedRej"></tbody></table></div>
     <div class="scroll"><table><thead><tr><th>الوقت</th><th>خطأ تحليل رسالة</th></tr></thead><tbody id="feedErr"></tbody></table></div>
   </div>
@@ -580,11 +584,18 @@ function buildUI(app) {
       st('مصدر البيانات', f.source === 'platform-ws' ? 'Pocket Option' : ESC(f.source), 'WebSocket الصفحة — قراءة فقط') +
       st('الأصل المحلَّل', f.asset ? ESC(f.asset) : NA, 'المعروض في الصفحة: ' + (shown ? ESC(shown) : 'غير متاح')) +
       st('آخر سعر', f.lastPrice != null ? f.lastPrice : NA, f.lastTs ? 'وقت المنصة ' + new Date(f.lastTs * 1000).toLocaleTimeString('ar', { hour12: false }) : '') +
-      st('آخر تحديث', ago(f.ageMs), f.lagS !== null ? 'فرق ساعة المنصة عن جهازك ≈ ' + f.lagS + ' ث' : '') +
+      st('آخر تحديث', ago(f.ageMs), f.latencyMs != null ? 'تأخر نسبي ' + f.latencyMs + ' ms · ساعة المنصة ' + (f.clockOffsetS >= 0 ? '+' : '') + f.clockOffsetS + ' ث عن جهازك' : '') +
       st('التيكات', f.ticks.ok, 'مستلمة ' + f.ticks.rx + ' · مكررة ' + f.ticks.dup + ' · مرفوضة ' + f.ticks.rej, f.ticks.rej ? 'warn' : '') +
       st('الشموع المعالجة', f.candles, 'حية منذ تشغيل الصفحة') +
       st('جودة البيانات', dq ? dq.q + '%' : NA, dq && dq.issues.length ? ESC(dq.issues.join(' | ')) : '', dq && dq.q < V.cfg.minQ ? 'l' : '') +
       st('الاتصال', f.open + ' مفتوح', 'إعادة اتصال ' + f.reconnects + ' · انقطاع كلي ' + ago(f.downMs), f.open ? '' : 'l');
+    const P = f.pipeline, SL = { connected: 'متصل بالمنصة', authenticated: 'تم تسجيل الدخول (successauth)', subscribed: 'اشتراك في أصل (changeSymbol)', receiving: 'تصل رسائل الأسعار', valid: 'البيانات صالحة وحديثة' };
+    let blocked = false;
+    $('feedPipe').innerHTML = Object.keys(SL).map(k => {
+      const s = P.stages[k], ok = s.ok && !blocked; if (!s.ok) blocked = true;
+      return `<li class="${ok ? 'ok' : 'no'}"><b>${ok ? '✔' : '✖'}</b><span>${SL[k]} — <small class="note">${ESC(s.detail)}</small></span></li>`;
+    }).join('');
+    $('feedWhy').innerHTML = P.why ? '<span class="l">⚠ التشخيص: ' + ESC(P.why) + '</span>' : '<span class="w">✔ خط البيانات سليم من الاتصال حتى التيك الصالح.</span>';
     $('feedNote').innerHTML = (f.reloadAdvice ? '<span class="l">⚠ لم تُعِد المنصة الاتصال: أعد تحميل الصفحة.</span> ' : '') +
       (tappedOk ? '' : '<span class="l">⚠ لم يُركَّب مراقب WebSocket: لن تصل أي بيانات. أعد تحميل الصفحة.</span> ') +
       '«بيانات حية» تظهر فقط عند وصول تيك صالح للأصل خلال آخر 3 ث عبر اتصال مفتوح؛ الاتصال وحده لا يكفي.';
@@ -597,6 +608,10 @@ function buildUI(app) {
         st('التاريخ', f.hist.ok, 'تحميلات ' + f.hist.loads + ' · مرفوضة ' + f.hist.rej, f.hist.rej ? 'warn' : '');
       const ev = Object.entries(f.known).map(([k, n]) => [k, n, 'مقروء']).concat(Object.entries(f.unknown).map(([k, n]) => [k, n, 'غير مقروء'])).sort((a, b) => b[1] - a[1]);
       $('feedEv').innerHTML = ev.slice(0, 40).map(([k, n, t]) => `<tr><td style="direction:ltr;text-align:left">${ESC(k)}</td><td>${n}</td><td class="${t === 'مقروء' ? 'w' : 'note'}">${t}</td></tr>`).join('') || '<tr><td colspan="3" class="note">لم تصل رسائل بعد</td></tr>';
+      $('feedOut').innerHTML = Object.entries(f.outgoing).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, n]) => `<tr><td style="direction:ltr;text-align:left">${ESC(k)}</td><td>${n}</td></tr>`).join('') || '<tr><td colspan="2" class="note">لم تُرصد رسائل صادرة بعد</td></tr>';
+      $('feedUnp').innerHTML = 'أصول معروفة من updateAssets: ' + f.assetsKnown + ' · إطارات ثنائية دون حدث ينتظرها: ' + f.unpaired.n +
+        (f.unpaired.skeletons.length ? '<br><span style="direction:ltr;display:inline-block">' + f.unpaired.skeletons.map(ESC).join('<br>') + '</span>' : '') +
+        (f.env ? '<br>Worker في الصفحة: ' + f.env.workers + ' · iframe: ' + f.env.frames : '');
       const rj = Object.entries(f.ticks.reasons).concat(Object.entries(f.hist.reasons).map(([k, n]) => ['تاريخ: ' + k, n]));
       $('feedRej').innerHTML = rj.map(([k, n]) => `<tr><td>${ESC(k)}</td><td>${n}</td></tr>`).join('') || '<tr><td colspan="2" class="note">لا شيء</td></tr>';
       $('feedErr').innerHTML = f.parseErrors.slice().reverse().map(e => `<tr><td>${new Date(e.at).toTimeString().slice(0, 8)}</td><td>${ESC(e.why)}</td></tr>`).join('') || '<tr><td colspan="2" class="note">لا أخطاء</td></tr>';

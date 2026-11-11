@@ -6,6 +6,7 @@ const { SIM_ONLY, SCRIPT_VERSION } = require('./engine/state');
 const { createHandler, installSocketTap } = require('./platform/ws');
 const { readShownAsset, downloadText } = require('./platform/dom');
 const { createDiscovery } = require('./platform/discovery');
+const { installEnvProbe } = require('./platform/env');
 const { buildUI } = require('./ui/ui');
 const core = {
   stats: require('./core/stats'), indicators: require('./core/indicators'), strategies: require('./core/strategies'),
@@ -36,7 +37,8 @@ const flushNow = () => { try { F.saveAll(); } catch (e) {} try { F.recFlush(); }
 win.addEventListener('beforeunload', flushNow);
 win.addEventListener('pagehide', flushNow);
 try { document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushNow(); }); } catch (e) {}
-setInterval(() => { try { F.watchdog(); } catch (err) {} try { F.feedCheck(); } catch (err) {} }, 1000);
+const probe = installEnvProbe(win, s => F.setEnv(s));
+setInterval(() => { try { F.watchdog(); } catch (err) {} try { F.setEnv(probe.snapshot()); F.feedCheck(); } catch (err) {} }, 1000);
 setInterval(() => { try { F.recFlush(); } catch (err) {} }, 5000);
 
 const handle = createHandler(E);
@@ -79,7 +81,7 @@ if (TEST) {
   win.__WSNF25 = {
     SIM_ONLY, S, CFG, E, core, app, get ui() { return uiHandle; },
     on: E.on, cmd: E.cmd, discovery, tapped,
-    feedView: F.feedView, feedCheck: F.feedCheck, computeStatus: F.computeStatus, ingestTicks: F.ingestTicks, ingestHistory: F.ingestHistory, feedState: () => E.feed,
+    feedView: F.feedView, feedCheck: F.feedCheck, feedStages: F.feedStages, probe, onOutgoing: F.onOutgoing, computeStatus: F.computeStatus, ingestTicks: F.ingestTicks, ingestHistory: F.ingestHistory, feedState: () => E.feed,
     feedTick: F.feedTick, onClose: F.onClose, handle, getA: F.getA, AK: F.AK,
     // تحليل نافذة «كما في لحظة إغلاق آخر شمعة فيها» (asOf صريح)
     analyze: (cs, A, asset) => F.analyzeWindow(cs, A, asset, cs.length ? cs[cs.length - 1].t + CFG.tf : undefined),

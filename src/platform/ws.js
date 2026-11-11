@@ -7,31 +7,39 @@
 // - أي فشل في التحليل يُسجَّل (لا يُبتلع بصمت).
 // - حارس من التركيب المزدوج: لو حُقن السكربت مرتين لا يُلَف WebSocket مرتين ولا تتكرر المستمعات.
 const { parseText, fillPlaceholders, eventName } = require('../core/sio');
-const { hostOf } = require('./discovery');
+const { hostOf, skeleton } = require('./discovery');
 const WS_GRACE_MS = 3000; // مهلة قبل اعتبار الانقطاع حقيقيًا (إعادة اتصال المنصة العادية تستغرق ثوانٍ قليلة)
 const TAP = '__wsnfTap';
 
-// الأحداث السوقية التي نعرف صيغتها (موروثة من الإصدار الأصلي؛ تحقق منها بأداة الاستكشاف على صفحتك)
+// الأحداث التي نقرؤها. أسماؤها وصيغها موثّقة في الهندسة العكسية المنشورة لمكتبة lordralinc/pocket_option
+// (reverse/on_events.md): updateStream = [[asset, time, price]]، updateHistoryNew* = { asset, history: [[time, price]] }،
+// successauth / NotAuthorized، updateAssets = صفوف [id, asset, label, …]. لا نخترع أي حدث آخر.
 const KNOWN = [
   { test: n => n === 'updateStream', kind: 'stream' },
-  { test: n => /^updateHistoryNew/.test(n), kind: 'hist' }
+  { test: n => /^updateHistoryNew/.test(n), kind: 'hist' },
+  { test: n => n === 'successauth', kind: 'auth' },
+  { test: n => n === 'NotAuthorized', kind: 'notauth' },
+  { test: n => n === 'updateAssets', kind: 'assets' }
 ];
 
 // ترجمة حدث إلى استدعاءات المحرك (مكشوفة للاختبارات باسم handle)
 function createHandler(E) {
-  const [ingestTicks, ingestHistory, logErr] = E.use('ingestTicks', 'ingestHistory', 'logErr');
+  const [ingestTicks, ingestHistory, onAuth, onAssets, logErr] = E.use('ingestTicks', 'ingestHistory', 'onAuth', 'onAssets', 'logErr');
   return function handle(kind, j, connId) {
     try {
       if (kind === 'stream') ingestTicks(connId || 0, j);
       if (kind === 'hist' && j && j.asset && Array.isArray(j.history)) ingestHistory(connId || 0, j.asset, j.history);
+      if (kind === 'auth') onAuth(connId || 0, true);
+      if (kind === 'notauth') onAuth(connId || 0, false);
+      if (kind === 'assets') onAssets(connId || 0, j);
     } catch (e) { E.S.loading = false; logErr('HANDLE', String(e && e.message || e)); }
   };
 }
 
 // تركيب الاعتراض على win.WebSocket. timers: { setTimeout, clearTimeout }. discovery: أداة الاستكشاف (اختيارية).
 function installSocketTap(win, E, handle, timers, discovery) {
-  const [connCreated, connOpened, connClosed, onMessage, onEvent, parseError, onWsDown, logErr] =
-    E.use('connCreated', 'connOpened', 'connClosed', 'onMessage', 'onEvent', 'parseError', 'onWsDown', 'logErr');
+  const [connCreated, connOpened, connClosed, onMessage, onEvent, parseError, onWsDown, logErr, onOutgoing, onUnpaired] =
+    E.use('connCreated', 'connOpened', 'connClosed', 'onMessage', 'onEvent', 'parseError', 'onWsDown', 'logErr', 'onOutgoing', 'onUnpaired');
   const NativeWS = win.WebSocket;
   if (!NativeWS) return false;
   if (NativeWS[TAP]) return false; // مركّب مسبقًا
@@ -60,7 +68,14 @@ function installSocketTap(win, E, handle, timers, discovery) {
     }
   }
   function onBinaryText(c, t) {
-    if (!c.pend) { parseError(c.id, 'إطار ثنائي بلا حدث ينتظره'); return; }
+    if (!c.pend) {
+      // ليس بالضرورة خطأ: نعدّه ونحفظ بنيته فقط (بلا قيم) لمعرفة ما ترسله المنصة بهذه الطريقة
+      let sk = 'نص غير JSON';
+      try { sk = skeleton(JSON.parse(t)); } catch (e) {}
+      onUnpaired(c.id, sk);
+      if (discovery) discovery.frame('binary:unpaired');
+      return;
+    }
     let v;
     try { v = JSON.parse(t); } catch (e) { parseError(c.id, 'مرفق ثنائي ليس JSON: ' + String(e && e.message || e).slice(0, 60)); c.pend = null; return; }
     c.pend.atts.push(v);
@@ -69,6 +84,13 @@ function installSocketTap(win, E, handle, timers, discovery) {
     let data;
     try { data = fillPlaceholders(p.data, p.atts); } catch (e) { parseError(c.id, String(e && e.message || e)); return; }
     dispatch(c, data, true);
+  }
+  function observeOut(c, data) {
+    if (typeof data !== 'string') return;
+    const m = parseText(data);
+    if (m.eio !== 'message' || (m.sio !== 'event' && m.sio !== 'binary_event')) return;
+    const name = eventName(m.data);
+    if (name) onOutgoing(c.id, name, Array.isArray(m.data) ? m.data[1] : undefined);
   }
   // الترتيب داخل الاتصال الواحد محفوظ: النص الذي يصل أثناء فك إطار ثنائي ينتظر دوره
   function onMsg(c, ev) {
@@ -89,6 +111,15 @@ function installSocketTap(win, E, handle, timers, discovery) {
     const ws = proto !== undefined ? new NativeWS(url, proto) : new NativeWS(url);
     const c = { id: connCreated(hostOf(url)), pend: null, q: Promise.resolve(), busy: 0 }; // المضيف فقط، بلا مسار ولا معاملات
     try { if (discovery) discovery.host(url); } catch (e) {}
+    // مراقبة سلبية لما ترسله المنصة نفسها (اسم الحدث، وأصل/مدة الاشتراك فقط). شفافة تمامًا: نفس الوسائط ونفس القيمة المعادة،
+    // ولا تمنع ولا تؤخر ولا تُنشئ أي رسالة. البوت نفسه لا يرسل شيئًا.
+    const nativeSend = ws.send;
+    if (typeof nativeSend === 'function') {
+      ws.send = function (data) {
+        try { observeOut(c, data); } catch (e) {}
+        return nativeSend.apply(this, arguments);
+      };
+    }
     ws.addEventListener('message', ev => { try { onMsg(c, ev); } catch (e) { parseError(c.id, 'معالجة رسالة: ' + String(e && e.message || e)); } });
     ws.addEventListener('open', () => {
       live.add(ws);

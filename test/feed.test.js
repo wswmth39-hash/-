@@ -11,7 +11,7 @@ const enc = s => new TextEncoder().encode(s);
 function boot(opts = {}) {
   const B = H.load(opts);
   const sockets = [];
-  B.open = () => { const ws = new B.ctx.WebSocket('wss://api.po.test/socket.io/?EIO=4&sid=SECRET'); ws.sent = 0; ws.send = () => { ws.sent++; }; ws.emit('open'); sockets.push(ws); return ws; };
+  B.open = () => { const ws = new B.ctx.WebSocket('wss://api.po.test/socket.io/?EIO=4&sid=SECRET'); ws.emit('open'); sockets.push(ws); return ws; };
   B.text = (ws, s) => ws.emit('message', { data: s });
   B.bin = (ws, s) => ws.emit('message', { data: enc(s) });
   B.ticks = (ws, list) => B.text(ws, '42["updateStream",' + JSON.stringify(list) + ']');
@@ -66,14 +66,13 @@ test('F3 فشل تحليل الرسائل يُسجَّل ولا يُبتلع ب�
   assert.ok(codes.some(e => /JSON/.test(e.msg)));
 });
 
-test('F4 التحقق من التيك: وقت بالمللي ثانية، سعر غير صالح، قفزة شاذة، وقت مستقبلي، وتكرار — كلها لا تدخل الشموع', async () => {
+test('F4 التحقق من التيك: وقت بالمللي ثانية، سعر غير صالح، قفزة شاذة، وتكرار — كلها لا تدخل الشموع', async () => {
   const B = boot(), W = B.W, t0 = 1700000040;
   const ws = B.open(); B.setNow(t0 * 1000 + 10000);
   B.ticks(ws, [[A, t0 + 1, 1.1], [A, t0 + 2, 1.1001]]);
   B.ticks(ws, [[A, (t0 + 3) * 1000, 1.1002]]);         // مللي ثانية
   B.ticks(ws, [[A, t0 + 4, 0], [A, t0 + 4, 'x']]);     // سعر صفر/نص
   B.ticks(ws, [[A, t0 + 5, 1.6]]);                      // قفزة 45%
-  B.ticks(ws, [[A, t0 + 7200, 1.1003]]);                // ساعتان في المستقبل
   B.ticks(ws, [[A, t0 + 2, 1.1001], [A, t0 + 2, 1.1001]]); // تكرار حرفي
   await B.flush();
   const c = lastCandle(B);
@@ -81,8 +80,9 @@ test('F4 التحقق من التيك: وقت بالمللي ثانية، سعر
   assert.equal(c.nt, 2, 'عدد التيكات تضخم بالتكرار أو المرفوض'); assert.equal(c.h, 1.1001);
   if (!W.feedView) return assert.fail('لا عدّادات تحقق (v3.6)');
   const f = W.feedView();
-  assert.equal(f.ticks.ok, 2); assert.equal(f.ticks.dup, 2); assert.equal(f.ticks.rej, 5);
-  for (const re of [/مللي/, /غير موجب/, /غير رقمي/, /قفزة/, /المستقبل/]) assert.ok(Object.keys(f.ticks.reasons).some(k => re.test(k)), re + ' ' + JSON.stringify(f.ticks.reasons));
+  assert.equal(f.ticks.ok, 2); assert.equal(f.ticks.dup, 2); assert.equal(f.ticks.rej, 4);
+  // v4.0.1: أُزيل رفض «الوقت المستقبلي» مقارنة بساعة الجهاز: كان يرفض كل التيكات إن كانت ساعة المنصة مزاحة (F15)
+  for (const re of [/مللي/, /غير موجب/, /غير رقمي/, /قفزة/]) assert.ok(Object.keys(f.ticks.reasons).some(k => re.test(k)), re + ' ' + JSON.stringify(f.ticks.reasons));
 });
 
 test('F5 آلة حالات البيانات (بحتة): «حية» فقط مع اتصال مفتوح وتيك صالح حديث', () => {
@@ -199,6 +199,22 @@ test('F14 بيانات حالة التغذية لا تحتوي قيمًا غير
   assert.equal(f.lastPrice, 1.2345); assert.equal(f.lastTs, t0 + 1); assert.equal(f.ageMs, 0);
 });
 
+test('F15 ساعة المنصة مزاحة عن ساعة الجهاز (+2 س موثّقة في مكتبة مفتوحة المصدر، أو −2 س): التيكات تُقبل ويُقاس الفرق', async () => {
+  // مصدر الإزاحة: lordralinc/pocket_option (constants.py: TIMESTAMP_OFFSET = -7200). لا نفترضها؛ نقبل أي إزاحة ثابتة.
+  for (const shift of [7200, -7200, 0]) {
+    const B = boot(), W = B.W, t0 = 1700000040;
+    const ws = B.open();
+    for (let s = 0; s < 130; s++) { B.setNow((t0 + s) * 1000 + 150); B.ticks(ws, [[A, t0 + shift + s + .3, 1.1 + s * 1e-5]]); }
+    const c = W.S.candles[A];
+    assert.ok(c && c.length >= 2, 'إزاحة ' + shift + ': لم تُبنَ شموع (التيكات رُفضت)');
+    if (!W.feedView) continue;
+    const f = W.feedView();
+    assert.equal(f.ticks.ok, 130, 'إزاحة ' + shift + ': ' + JSON.stringify(f.ticks.reasons));
+    assert.ok(Math.abs(f.clockOffsetS - shift) <= 1, 'الإزاحة المقاسة ' + f.clockOffsetS + ' بدل ' + shift);
+    assert.ok(f.latencyMs !== null && f.latencyMs <= 200, 'التأخر ' + f.latencyMs);
+  }
+});
+
 test('F12 التاريخ: المدخلات التالفة تُرفض وتُعدّ، والصالحة تُحمَّل كما كانت', async () => {
   const B = boot(), W = B.W, t0 = 1700000040;
   if (!W.feedView) return assert.fail('لا مراقب تغذية (v3.6)');
@@ -219,6 +235,135 @@ test('F13 البوت لا يرسل أي شيء عبر WebSocket المنصة', a
   for (const [ts, p] of t) { B.setNow(ts * 1000); B.ticks(ws, [[A, ts, p]]); }
   W.discovery && W.discovery.start();
   B.ticks(ws, [[A, t[t.length - 1][0] + 1, 1.1]]);
-  assert.equal(ws.sent, 0);
+  assert.equal(ws.sent || 0, 0);
   assert.doesNotMatch(H.source(), /\.send\(/);
+});
+
+// ---------- v4.0.1: مراحل خط البيانات (عيّنات بصيغ موثّقة — ليست مسجّلة من المنصة، انظر test/fixtures) ----------
+const FX = require('./fixtures/po_documented_samples.json');
+const T0 = 1700000040;
+function session(B) {
+  const ws = B.open(); B.setNow(T0 * 1000);
+  B.text(ws, FX.incoming.open); B.text(ws, FX.incoming.connect);
+  return ws;
+}
+const pipe = W => W.feedView().pipeline;
+
+test('F16 المراحل الخمس على جلسة بالصيغ الموثّقة: كل مرحلة تظهر فقط عند وصول دليلها، والتشخيص يسمّي المرحلة الناقصة', async () => {
+  const B = boot(), W = B.W;
+  if (!W.feedStages) return assert.fail('لا مراحل (قبل v4.0.1)');
+  const ws = session(B);
+  let P = pipe(W);
+  assert.deepEqual([P.stages.connected.ok, P.stages.authenticated.ok, P.stages.subscribed.ok, P.stages.receiving.ok, P.stages.valid.ok], [true, false, false, false, false]);
+  assert.match(P.why, /successauth/);
+  B.text(ws, FX.incoming.successauth_hdr);
+  B.text(ws, FX.incoming.updateCharts_ui);                       // حدث واجهة، ليس أسعارًا
+  P = pipe(W); assert.equal(P.stages.authenticated.ok, true); assert.equal(P.stages.receiving.ok, false); assert.match(P.why, /changeSymbol/);
+  ws.send(FX.outgoing.changeSymbol_str);                          // عميل المنصة يطلب الاشتراك (لا البوت)
+  assert.deepEqual(ws.out, [FX.outgoing.changeSymbol_str], 'الإرسال لم يكن شفافًا');
+  P = pipe(W); assert.equal(P.stages.subscribed.ok, true); assert.equal(P.subAsset, 'EURUSD_otc'); assert.match(P.why, /لا تصل رسائل الأسعار/);
+  B.text(ws, FX.incoming.updateStream_hdr); B.bin(ws, JSON.stringify([['EURUSD_otc', T0 + .4, 1.08451]]));
+  await B.flush();
+  P = pipe(W);
+  assert.deepEqual([P.stages.receiving.ok, P.stages.valid.ok], [true, true]);
+  assert.equal(P.why, '');
+  assert.equal(W.feedView().lastPrice, 1.08451);
+});
+
+test('F17 حل الأصل: changeSymbol برقم يُترجم عبر جدول updateAssets، والرقم المجهول يظهر صراحةً لا يُخمَّن', async () => {
+  const B = boot(), W = B.W;
+  if (!W.feedStages) return assert.fail('لا مراحل (قبل v4.0.1)');
+  const ws = session(B);
+  B.text(ws, FX.incoming.successauth_hdr);
+  B.text(ws, FX.incoming.updateAssets_hdr); B.bin(ws, JSON.stringify(FX.incoming.updateAssets_bin));
+  await B.flush();
+  assert.equal(W.feedView().assetsKnown, 2);
+  ws.send(FX.outgoing.changeSymbol_id);
+  assert.equal(pipe(W).subAsset, 'EURUSD_otc');
+  ws.send(FX.outgoing.changeSymbol_unknown);
+  assert.equal(pipe(W).subAsset, null);
+  assert.match(pipe(W).stages.subscribed.detail, /#999 \(غير معروف/);
+});
+
+test('F18 الرسائل الصادرة: لا تُسجَّل أي قيمة (جلسة/معرّف)، فقط الاسم', async () => {
+  const B = boot(), W = B.W;
+  if (!W.feedStages) return assert.fail('لا مراحل (قبل v4.0.1)');
+  const ws = session(B);
+  ws.send(FX.outgoing.auth); ws.send(FX.outgoing.ping_reply);
+  const all = JSON.stringify(W.feedView()) + JSON.stringify(W.feedState()) + JSON.stringify(W.S.errors);
+  for (const secret of ['SECRETSESSION', '424242']) assert.ok(!all.includes(secret), 'تسرّب ' + secret);
+  assert.equal(W.feedView().outgoing.auth, 1);
+  assert.deepEqual(ws.out, [FX.outgoing.auth, FX.outgoing.ping_reply]);
+});
+
+test('F19 بعد إعادة الاتصال: «مشترك» يعود ✖ حتى تعيد المنصة الاشتراك على الاتصال الجديد', async () => {
+  const B = boot(), W = B.W;
+  if (!W.feedStages) return assert.fail('لا مراحل (قبل v4.0.1)');
+  let ws = session(B);
+  B.text(ws, FX.incoming.successauth_hdr); ws.send(FX.outgoing.changeSymbol_str);
+  B.ticks(ws, [['EURUSD_otc', T0 + .3, 1.1]]);
+  assert.equal(pipe(W).stages.valid.ok, true);
+  B.setNow(T0 * 1000 + 2000); ws.emit('close');
+  assert.equal(pipe(W).stages.connected.ok, false);
+  ws = B.open(); B.setNow(T0 * 1000 + 4000);
+  B.text(ws, FX.incoming.successauth_hdr);
+  let P = pipe(W);
+  assert.deepEqual([P.stages.connected.ok, P.stages.authenticated.ok, P.stages.subscribed.ok], [true, true, false]);
+  assert.equal(P.stages.valid.ok, false, 'تيكات الاتصال السابق لا تجعل الجديد «صالحًا»');
+  ws.send(FX.outgoing.changeSymbol_str);
+  B.ticks(ws, [['EURUSD_otc', T0 + 4.3, 1.1001]]);
+  P = pipe(W); assert.equal(P.stages.valid.ok, true); assert.equal(W.feedView().reconnects, 1);
+});
+
+test('F20 تصل الأسعار لكن كلها مرفوضة: التشخيص يذكر الأسباب، ولا شموع ولا إشارات', async () => {
+  const B = boot(), W = B.W;
+  if (!W.feedStages) return assert.fail('لا مراحل (قبل v4.0.1)');
+  const ws = session(B);
+  B.text(ws, FX.incoming.successauth_hdr); ws.send(FX.outgoing.changeSymbol_str);
+  for (let i = 0; i < 300; i++) B.ticks(ws, [['EURUSD_otc', (T0 + i) * 1000, 1.1]]);  // مللي ثانية: كلها تُرفض
+  const P = pipe(W);
+  assert.equal(P.stages.receiving.ok, true); assert.equal(P.stages.valid.ok, false);
+  assert.match(P.why, /كل التيكات تُرفض.*مللي/);
+  assert.equal((W.S.candles.EURUSD_otc || []).length, 0);
+  assert.equal(W.S.log.length, 0);
+});
+
+test('F21 إطار ثنائي بلا حدث ينتظره: يُعدّ وتُحفظ بنيته فقط (بلا قيم)، وليس خطأ', async () => {
+  const B = boot(), W = B.W;
+  if (!W.feedStages) return assert.fail('لا مراحل (قبل v4.0.1)');
+  const ws = session(B);
+  B.bin(ws, JSON.stringify({ balance: 777.77, isDemo: 1 }));
+  B.bin(ws, JSON.stringify([['EURUSD_otc', T0 + .5, 1.0901]]));
+  await B.flush();
+  const f = W.feedView(), js = JSON.stringify(f);
+  assert.equal(f.unpaired.n, 2);
+  assert.ok(!js.includes('777.77') && !js.includes('1.0901'), 'قيم في التشخيص');
+  assert.ok(f.unpaired.skeletons.some(s => s.includes('balance')));
+  assert.equal(f.parseErrors.length, 0);
+  assert.equal(f.ticks.ok, 0, 'إطار غير مقترن لا يُعامل كأسعار بالتخمين');
+});
+
+test('F22 NotAuthorized يظهر في المرحلة والتشخيص وسجل الأخطاء', async () => {
+  const B = boot(), W = B.W;
+  if (!W.feedStages) return assert.fail('لا مراحل (قبل v4.0.1)');
+  const ws = session(B);
+  B.text(ws, FX.incoming.notauthorized);
+  assert.match(pipe(W).why, /NotAuthorized/);
+  assert.ok(W.S.errors.some(e => e.code === 'PO_AUTH'));
+});
+
+test('F23 فحص بيئة الصفحة: Worker وSharedWorker وiframe تُعدّ دون تعديل سلوكها', () => {
+  const { installEnvProbe } = require('../src/platform/env');
+  const made = [];
+  class NativeWorker { constructor(u, o) { made.push([u, o]); } }
+  const win = { location: { href: 'https://pocketoption.com/en/cabinet/' }, Worker: NativeWorker, document: { querySelectorAll: () => [{ src: 'https://charts.example/x' }, { src: '' }] } };
+  const seen = [];
+  const p = installEnvProbe(win, s => seen.push(s.workers));
+  const w = new win.Worker('/js/quotes.worker.js', { type: 'module' });
+  assert.ok(w instanceof NativeWorker);
+  assert.deepEqual(made, [['/js/quotes.worker.js', { type: 'module' }]]);
+  const s = p.snapshot();
+  assert.equal(s.workers, 1); assert.equal(s.workerHosts['pocketoption.com'], 1); assert.equal(s.frames, 2);
+  installEnvProbe(win, () => {}); new win.Worker('/a.js');
+  assert.equal(made.length, 2, 'التركيب المزدوج لا يكرر');
 });
