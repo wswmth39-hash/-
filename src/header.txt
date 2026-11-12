@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         wsnf smart bot v4.0-dev (simulation only + candle recorder + reliable feed)
+// @name         POCKET OPTION SMART BOT V1.0-dev (analysis and signals only)
 // @namespace    local.wsnf.v34sim
-// @version      4.0.0-dev
-// @description  تحليل وإشارات وصفقات افتراضية فقط (Paper Trading) + مسجّل شموع محلي. لا ينقر أي زر في المنصة ولا يرسل أي أمر.
+// @version      1.0.0-dev.2
+// @description  تحليل لحظي وإشارات على أسعار المنصة الفعلية. لا ينفّذ صفقات، لا ينقر أي زر في المنصة ولا يرسل أي أمر. أداة مستقلة غير تابعة لـ Pocket Option.
 // @match        https://pocketoption.com/*
 // @match        https://*.pocketoption.com/*
 // @run-at       document-start

@@ -10,7 +10,7 @@ const { NM, GRP, SK, STR, IMPK } = require('../core/strategies');
 const { verifyCandles } = require('../core/quality');
 const { CTX_LBL, CTX_KINDS } = require('../core/context');
 const { HZ, RGS, VETOS, EXPS, hzLabel } = require('../core/catalog');
-const { tfOfKey, emptyBook } = require('../core/learning');
+const { tfOfKey, assetOfKey, emptyBook } = require('../core/learning');
 const { KEYS, SIM_ONLY, SCRIPT_VERSION } = require('./state');
 
 const copy = x => x === undefined ? undefined : JSON.parse(JSON.stringify(x));
@@ -166,9 +166,74 @@ module.exports = function install(E) {
   // إعدادات تحتاجها الواجهة عند البناء فقط
   function settings() { return { tf: CFG.tf, minConf: CFG.minConf, payout: CFG.payout, payoutCur: payoutOf(S.cur), beCur: BE(S.cur), cur: S.cur, lock: S.lock }; }
 
+
+  // لوحة V1.0 (الواجهة الجديدة): رموز حالة محايدة لغويًا تترجمها الواجهة، وأرقام محسوبة من الحالة الفعلية فقط.
+  // لا تكتب في الحالة. نصوص الأسباب التي يولّدها المحرك (abst/notes) تُمرَّر كما هي.
+  function dash() {
+    const now = clock(), asset = S.cur, r = asset ? S.sigBy[asset] : null, arr = asset ? S.candles[asset] || [] : [];
+    const f = E.fn.feedView(), dataOk = f.status === 'live' || f.status === 'delayed';
+    // حالة محرك التوقيت — مشتقة من قرار المحرك الحالي (محرك التوقيت المستقل والتقييم من 100: المرحلة 5)
+    let timing;
+    if (!asset || !dataOk) timing = { state: 'wait', code: 'data' };
+    else if (S.loading) timing = { state: 'analyzing', code: 'history' };
+    else if (arr.length < 60) timing = { state: 'wait', code: 'collect', n: arr.length, need: 60 };
+    else if (!r) timing = { state: 'analyzing', code: 'first' };
+    else if (r.stale) timing = { state: 'wait', code: 'stale' };
+    else if (r.d !== 'none') timing = { state: 'favorable', code: 'signal' };
+    else timing = { state: 'no_trade', code: 'engine', text: r.abst && r.abst[0] ? String(r.abst[0]) : '' };
+    const analysis = !asset ? 'idle' : S.loading ? 'loading' : !dataOk ? 'paused' : arr.length < 60 ? 'collecting' : 'active';
+    let signal = null;
+    if (r) {
+      const sd = r.sd || 0, votes = r.rawA && typeof r.rawA === 'object' ? r.rawA : {};
+      const side = sgn => sd ? Object.keys(votes).filter(k => votes[k] * sd * sgn > 0).map(k => ({ k, name: NM[k] || k, v: +(+votes[k]).toFixed(2) })) : [];
+      signal = {
+        d: r.d, conf: r.conf, sd, regime: r.regime || '-', stale: !!r.stale,
+        abst: (r.abst || []).map(String), notes: (r.notes || []).map(String),
+        agree: r.agree === undefined ? null : r.agree, oppPct: r.opp === undefined ? null : Math.round(r.opp * 100),
+        htf: r.htf === undefined ? null : r.htf, htfOK: r.htfOK === undefined ? null : !!r.htfOK,
+        q: r.q === undefined ? null : r.q, vetoes: copy(r.vetoes || []),
+        ctx: r.ctx ? { label: r.ctx.label, clarity: r.ctx.clarity, note: r.ctx.note || '' } : null,
+        pro: side(1), con: side(-1),
+        bestHz: r.hzB ? { s: r.hzB.h * CFG.tf, accPct: Math.round(r.hzB.acc * 100) } : null
+      };
+    }
+    // إحصاءات من دفاتر النتائج الحية المحفوظة (لا تُخلط بها نتائج إعادة تشغيل التاريخ)
+    const add = (o, k, n, w) => { const x = o[k] || (o[k] = { k, n: 0, w: 0 }); x.n += n; x.w += w; };
+    const byAsset = {}, byTf = {}, byStrat = {};
+    let n = 0, w = 0;
+    for (const k in S.A) {
+      const A = S.A[k];
+      if (!A || !A.e) continue;
+      n += A.e.ln; w += A.e.lw;
+      if (A.e.ln) { add(byAsset, assetOfKey(k), A.e.ln, A.e.lw); add(byTf, tfOfKey(k), A.e.ln, A.e.lw); }
+      // المفاتيح التي فيها # دفاتر فرعية لكل حالة سوق: تُستبعد حتى لا تُعدّ النتيجة مرتين
+      for (const sk in A.s) if (sk.indexOf('#') < 0 && A.s[sk] && A.s[sk].ln) add(byStrat, sk, A.s[sk].ln, A.s[sk].lw);
+    }
+    const fin = x => ({ ...x, acc: x.n ? x.w / x.n : null, lo: x.n ? wil(x.n, x.w, 1.96) : null, hi: x.n ? 1 - wil(x.n, x.n - x.w, 1.96) : null });
+    const rows = o => Object.values(o).map(fin).sort((a, b) => b.n - a.n);
+    const assets = f.assets.map(x => {
+      const cs = S.candles[x.a] || [], sg = S.sigBy[x.a];
+      return { a: x.a, price: x.p === undefined ? null : x.p, ageMs: x.ageMs, candles: cs.length, d: sg ? sg.d : null, conf: sg ? sg.conf : null, cur: x.a === asset, locked: S.lock === x.a };
+    });
+    return {
+      version: SCRIPT_VERSION, now, asset, lock: S.lock, tf: CFG.tf, candles: arr.length,
+      candleLeftS: asset && S.lastTs[asset] && arr.length ? Math.max(0, Math.ceil(CFG.tf - (S.lastTs[asset] - arr[arr.length - 1].t))) : null,
+      feed: { status: f.status, since: f.since, source: f.source, lastPrice: f.lastPrice, lastTs: f.lastTs, lastAt: f.lastAt, ageMs: f.ageMs, latencyMs: f.latencyMs,
+        open: f.open, reconnects: f.reconnects, ticksOk: f.ticks.ok, ticksRej: f.ticks.rej, ticksDup: f.ticks.dup, reloadAdvice: !!f.reloadAdvice, why: f.pipeline ? f.pipeline.why : '' },
+      analysis, timing, signal,
+      dq: asset && S.dq[asset] ? copy(S.dq[asset]) : null,
+      assets, assetsScanned: Object.keys(S.candles).length,
+      signalsLogged: S.log.length,
+      stats: { total: fin({ k: 'all', n, w }), byAsset: rows(byAsset), byTf: rows(byTf), byStrat: rows(byStrat).map(x => ({ ...x, name: NM[x.k] || x.k })) },
+      log: S.log.slice(0, 200).map(e => ({ t: e.t, asset: e.asset, dir: e.dir, conf: e.conf, entry: e.entry, exit: e.exit, win: e.win, tie: !!e.tie, stale: !!e.stale, voided: !!e.voided, failed: !!e.failed, why: (e.why || []).map(String) })),
+      errors: S.errors.length, storeErr: !!S.storeErr,
+      cfg: { tf: CFG.tf, minConf: CFG.minConf, minQ: CFG.minQ, feedLiveMs: CFG.feedLiveMs, maxTickAgeMs: CFG.maxTickAgeMs, feedUnavailableMs: CFG.feedUnavailableMs, window: CFG.window, maxAssets: CFG.maxAssets }
+    };
+  }
+
   // حالة التغذية: نسخة من مراقب البيانات (engine/feed.js) دون تعديل
   const feed = () => E.fn.feedView();
-  E.provide({ view, lab, recorder, chart, settings, feed, activeCheck, norm });
+  E.provide({ view, lab, recorder, chart, settings, feed, dash, activeCheck, norm });
 };
 module.exports.activeCheck = activeCheck;
 module.exports.norm = norm;

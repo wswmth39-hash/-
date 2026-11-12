@@ -1,8 +1,8 @@
 {
-  "name": "wsnf-smart-bot",
-  "version": "4.0.0-dev",
+  "name": "pocket-option-smart-bot",
+  "version": "1.0.0-dev.2",
   "private": true,
-  "description": "WSNF Smart Bot — simulation-only userscript with tests",
+  "description": "POCKET OPTION SMART BOT V1.0 — analysis and signals userscript (no execution) with tests",
   "scripts": {
     "build": "node build.js",
     "test": "node build.js --check && node --test test/safety.test.js test/bugs.test.js test/regression.test.js test/recorder.test.js test/engine.test.js test/golden.test.js test/feed.test.js",
@@ -10,7 +10,7 @@
     "test:original": "WSNF_TARGET=original node --test test/safety.test.js test/bugs.test.js test/regression.test.js",
     "compare": "node test/compare.js",
     "compare:all": "node test/compare.js --stats --md docs/TEST_RESULTS.md",
-    "test:browser": "node test/ui.smoke.js docs/ui_v4.png && node test/recorder.browser.js docs/ui_recorder.png && node test/ui.engine.browser.js && node test/feed.browser.js docs/ui_v4_feed.png",
+    "test:browser": "node test/ui.smoke.js docs/ui_v4.png && node test/recorder.browser.js docs/ui_recorder.png && node test/ui.engine.browser.js && node test/feed.browser.js docs/ui_v4_feed.png && node test/shell.browser.js docs/v1_dashboard.png docs/v1_mobile.png",
     "compare:c": "node test/compare.js --ref v35 --stats --md docs/TEST_RESULTS_C.md"
   },
   "engines": { "node": ">=18" }

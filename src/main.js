@@ -8,6 +8,7 @@ const { readShownAsset, downloadText } = require('./platform/dom');
 const { createDiscovery } = require('./platform/discovery');
 const { installEnvProbe } = require('./platform/env');
 const { buildUI } = require('./ui/ui');
+const { buildShell } = require('./ui/shell');
 const core = {
   stats: require('./core/stats'), indicators: require('./core/indicators'), strategies: require('./core/strategies'),
   quality: require('./core/quality'), context: require('./core/context'), decision: require('./core/decision'), catalog: require('./core/catalog'),
@@ -59,7 +60,7 @@ function diagnostics() {
 // كل ما تراه الواجهة من المحرك
 const app = {
   win, doc: document,
-  vm: { view: F.view, lab: F.lab, recorder: F.recorder, chart: F.chart, settings: F.settings, feed: F.feed },
+  vm: { view: F.view, lab: F.lab, recorder: F.recorder, chart: F.chart, settings: F.settings, feed: F.feed, dash: F.dash },
   cmd: E.cmd,
   rec: { setOn: F.recSetOn, exportFile: F.recExport, importFile: F.recImport, scanGaps: F.recScanGaps, clear: F.recClear },
   on: E.on, tapped,
@@ -68,8 +69,19 @@ const app = {
   downloadText: (name, text, mime) => downloadText(win, name, text, mime),
   prefs: { get: F.LSget, set: F.LSset }
 };
-let uiHandle = null;
-const build = () => { if (!win.__WSNF25_NOUI) uiHandle = buildUI(app); };
+// V1.0: الواجهة الجديدة (ui/shell.js) هي الظاهرة. صفحات الإصدار السابق تُبنى مخفية وتُفتح من «متقدم» وتعود بزر «رجوع».
+let uiHandle = null, shellHandle = null;
+const showLegacy = on => {
+  if (uiHandle && uiHandle.host) uiHandle.host.style.display = on ? '' : 'none';
+  if (shellHandle && shellHandle.host) shellHandle.host.style.display = on ? 'none' : '';
+  if (on && uiHandle) { try { uiHandle.host.shadowRoot.getElementById('min').textContent = shellHandle.backLabel(); } catch (e) {} uiHandle.paint(); }
+  if (!on && shellHandle) shellHandle.go('dash');
+};
+const build = () => {
+  if (win.__WSNF25_NOUI) return;
+  shellHandle = buildShell(app, { openLegacy: () => showLegacy(true) });
+  uiHandle = buildUI(app, { embedded: true, onBack: () => showLegacy(false), backLabel: shellHandle ? shellHandle.backLabel() : '←' });
+};
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);
 else build();
 
@@ -79,7 +91,7 @@ if (TEST) {
   const Ln = E.learner, Cl = E.clusters, Q = core.quality, D = core.decision, X = core.context, I = core.indicators;
   const peek = a => S.A[F.AK(a)] || null;
   win.__WSNF25 = {
-    SIM_ONLY, S, CFG, E, core, app, get ui() { return uiHandle; },
+    SIM_ONLY, S, CFG, E, core, app, get ui() { return uiHandle; }, get shell() { return shellHandle; }, showLegacy,
     on: E.on, cmd: E.cmd, discovery, tapped,
     feedView: F.feedView, feedCheck: F.feedCheck, feedStages: F.feedStages, probe, onOutgoing: F.onOutgoing, computeStatus: F.computeStatus, ingestTicks: F.ingestTicks, ingestHistory: F.ingestHistory, feedState: () => E.feed,
     feedTick: F.feedTick, onClose: F.onClose, handle, getA: F.getA, AK: F.AK,
