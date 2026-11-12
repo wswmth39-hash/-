@@ -31,6 +31,13 @@ module.exports = function install(E) {
       S.lock = S.lock ? null : (hit || S.cur);
       return S.lock;
     },
+    // اختيار الأصل يدويًا من الأصول التي وصلت بياناتها فعلًا (null = اتبع الأصل الذي تبثه المنصة)
+    lockAsset(asset) {
+      if (asset === null || asset === undefined || asset === '') { S.lock = null; return null; }
+      if (!S.candles[asset]) return S.lock;
+      S.lock = asset; S.cur = asset;
+      return S.lock;
+    },
     adopt(k) { return adoptExp(k); },
     resetRules() { resetCfg(); },
     exportMemory() { return buildExport(); },

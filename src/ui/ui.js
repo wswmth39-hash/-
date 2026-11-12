@@ -407,14 +407,18 @@ const HTML = `
 //   app.readShown()   اسم الأصل المعروض في صفحة المنصة (طبقة المنصة)
 //   app.downloadText(name, text, mime) · app.diagnostics() · app.prefs { get(k, d), set(k, v) } تفضيلات العرض فقط
 //   app.win / app.doc النافذة والمستند
-function buildUI(app) {
-  const doc = app.doc, win = app.win;
+// opts.embedded (V1.0): تُعرض هذه الصفحات كقسم «متقدم» داخل الواجهة الجديدة (ui/shell.js): بلا شاشة بداية ولا وميض ولا نافذة مصغّرة،
+// وتُخفى عناصر الصفقات الافتراضية (الكود باقٍ، والعناصر باقية في DOM). زر «تصغير» يصبح «رجوع» ويستدعي opts.onBack.
+const EMB_CSS = '#simCard,#auto,#kill,.splash,.flash,.mini{display:none!important}';
+function buildUI(app, opts) {
+  const doc = app.doc, win = app.win, emb = !!(opts && opts.embedded);
   if (doc.getElementById('wsnf25-host')) return null;
   const host = doc.createElement('div');
   host.id = 'wsnf25-host';
   doc.documentElement.appendChild(host);
   const sh = host.attachShadow({ mode: 'open' });
-  sh.innerHTML = '<style>' + CSS + '</style>' + HTML;
+  sh.innerHTML = '<style>' + CSS + (emb ? EMB_CSS : '') + '</style>' + HTML;
+  if (emb) host.style.display = 'none';
   const $ = id => sh.getElementById(id);
   const ui = app.prefs.get(UI_KEY, { min: false, x: 12, y: 90 });
   const full = $('full'), mini = $('mini'), flash = $('flash'), fbox = $('fbox'), splash = $('splash');
@@ -425,6 +429,7 @@ function buildUI(app) {
   win.setTimeout(() => { splash.style.display = 'none'; }, 3900);
 
   const setMin = m => {
+    if (emb) { ui.min = false; if (m && opts.onBack) opts.onBack(); return; }
     ui.min = m; app.prefs.set(UI_KEY, ui);
     full.classList.toggle('hide', m);
     mini.classList.toggle('show', m);
@@ -526,6 +531,7 @@ function buildUI(app) {
   };
 
   const showFlash = (cls, main, sub) => {
+    if (emb) return; // التنبيهات تعرضها الواجهة الجديدة
     flash.className = 'flash show ' + cls;
     fbox.style.animation = 'none'; void fbox.offsetWidth; fbox.style.animation = '';
     $('fA').textContent = main; $('fS').textContent = sub;
@@ -722,6 +728,7 @@ function buildUI(app) {
     $('mT').textContent = r && d !== 'none' ? 'قوة ' + r.conf : 'انتظار';
   }
   const t1 = win.setInterval(() => { try { paint(); } catch (e) { try { win.console.warn('wsnf paint', e); } catch (_) {} } }, 1000);
+  if (emb) { ui.min = false; splash.style.display = 'none'; $('min').textContent = opts.backLabel || '←'; }
   const t2 = win.setInterval(() => {
     if (ui.min || !sh.querySelector('.p-chart.on')) return;
     try { drawChart(cv, app.vm.chart()); } catch (e) {}

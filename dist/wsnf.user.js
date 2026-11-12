@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         wsnf smart bot v4.0-dev (simulation only + candle recorder + reliable feed)
+// @name         POCKET OPTION SMART BOT V1.0-dev (analysis and signals only)
 // @namespace    local.wsnf.v34sim
-// @version      4.0.0-dev
-// @description  تحليل وإشارات وصفقات افتراضية فقط (Paper Trading) + مسجّل شموع محلي. لا ينقر أي زر في المنصة ولا يرسل أي أمر.
+// @version      1.0.0-dev.2
+// @description  تحليل لحظي وإشارات على أسعار المنصة الفعلية. لا ينفّذ صفقات، لا ينقر أي زر في المنصة ولا يرسل أي أمر. أداة مستقلة غير تابعة لـ Pocket Option.
 // @match        https://pocketoption.com/*
 // @match        https://*.pocketoption.com/*
 // @run-at       document-start
@@ -1233,6 +1233,13 @@ module.exports = function install(E) {
       S.lock = S.lock ? null : (hit || S.cur);
       return S.lock;
     },
+    // اختيار الأصل يدويًا من الأصول التي وصلت بياناتها فعلًا (null = اتبع الأصل الذي تبثه المنصة)
+    lockAsset(asset) {
+      if (asset === null || asset === undefined || asset === '') { S.lock = null; return null; }
+      if (!S.candles[asset]) return S.lock;
+      S.lock = asset; S.cur = asset;
+      return S.lock;
+    },
     adopt(k) { return adoptExp(k); },
     resetRules() { resetCfg(); },
     exportMemory() { return buildExport(); },
@@ -2321,7 +2328,7 @@ const { NM, GRP, SK, STR, IMPK } = require('../core/strategies');
 const { verifyCandles } = require('../core/quality');
 const { CTX_LBL, CTX_KINDS } = require('../core/context');
 const { HZ, RGS, VETOS, EXPS, hzLabel } = require('../core/catalog');
-const { tfOfKey, emptyBook } = require('../core/learning');
+const { tfOfKey, assetOfKey, emptyBook } = require('../core/learning');
 const { KEYS, SIM_ONLY, SCRIPT_VERSION } = require('./state');
 
 const copy = x => x === undefined ? undefined : JSON.parse(JSON.stringify(x));
@@ -2477,9 +2484,74 @@ module.exports = function install(E) {
   // إعدادات تحتاجها الواجهة عند البناء فقط
   function settings() { return { tf: CFG.tf, minConf: CFG.minConf, payout: CFG.payout, payoutCur: payoutOf(S.cur), beCur: BE(S.cur), cur: S.cur, lock: S.lock }; }
 
+
+  // لوحة V1.0 (الواجهة الجديدة): رموز حالة محايدة لغويًا تترجمها الواجهة، وأرقام محسوبة من الحالة الفعلية فقط.
+  // لا تكتب في الحالة. نصوص الأسباب التي يولّدها المحرك (abst/notes) تُمرَّر كما هي.
+  function dash() {
+    const now = clock(), asset = S.cur, r = asset ? S.sigBy[asset] : null, arr = asset ? S.candles[asset] || [] : [];
+    const f = E.fn.feedView(), dataOk = f.status === 'live' || f.status === 'delayed';
+    // حالة محرك التوقيت — مشتقة من قرار المحرك الحالي (محرك التوقيت المستقل والتقييم من 100: المرحلة 5)
+    let timing;
+    if (!asset || !dataOk) timing = { state: 'wait', code: 'data' };
+    else if (S.loading) timing = { state: 'analyzing', code: 'history' };
+    else if (arr.length < 60) timing = { state: 'wait', code: 'collect', n: arr.length, need: 60 };
+    else if (!r) timing = { state: 'analyzing', code: 'first' };
+    else if (r.stale) timing = { state: 'wait', code: 'stale' };
+    else if (r.d !== 'none') timing = { state: 'favorable', code: 'signal' };
+    else timing = { state: 'no_trade', code: 'engine', text: r.abst && r.abst[0] ? String(r.abst[0]) : '' };
+    const analysis = !asset ? 'idle' : S.loading ? 'loading' : !dataOk ? 'paused' : arr.length < 60 ? 'collecting' : 'active';
+    let signal = null;
+    if (r) {
+      const sd = r.sd || 0, votes = r.rawA && typeof r.rawA === 'object' ? r.rawA : {};
+      const side = sgn => sd ? Object.keys(votes).filter(k => votes[k] * sd * sgn > 0).map(k => ({ k, name: NM[k] || k, v: +(+votes[k]).toFixed(2) })) : [];
+      signal = {
+        d: r.d, conf: r.conf, sd, regime: r.regime || '-', stale: !!r.stale,
+        abst: (r.abst || []).map(String), notes: (r.notes || []).map(String),
+        agree: r.agree === undefined ? null : r.agree, oppPct: r.opp === undefined ? null : Math.round(r.opp * 100),
+        htf: r.htf === undefined ? null : r.htf, htfOK: r.htfOK === undefined ? null : !!r.htfOK,
+        q: r.q === undefined ? null : r.q, vetoes: copy(r.vetoes || []),
+        ctx: r.ctx ? { label: r.ctx.label, clarity: r.ctx.clarity, note: r.ctx.note || '' } : null,
+        pro: side(1), con: side(-1),
+        bestHz: r.hzB ? { s: r.hzB.h * CFG.tf, accPct: Math.round(r.hzB.acc * 100) } : null
+      };
+    }
+    // إحصاءات من دفاتر النتائج الحية المحفوظة (لا تُخلط بها نتائج إعادة تشغيل التاريخ)
+    const add = (o, k, n, w) => { const x = o[k] || (o[k] = { k, n: 0, w: 0 }); x.n += n; x.w += w; };
+    const byAsset = {}, byTf = {}, byStrat = {};
+    let n = 0, w = 0;
+    for (const k in S.A) {
+      const A = S.A[k];
+      if (!A || !A.e) continue;
+      n += A.e.ln; w += A.e.lw;
+      if (A.e.ln) { add(byAsset, assetOfKey(k), A.e.ln, A.e.lw); add(byTf, tfOfKey(k), A.e.ln, A.e.lw); }
+      // المفاتيح التي فيها # دفاتر فرعية لكل حالة سوق: تُستبعد حتى لا تُعدّ النتيجة مرتين
+      for (const sk in A.s) if (sk.indexOf('#') < 0 && A.s[sk] && A.s[sk].ln) add(byStrat, sk, A.s[sk].ln, A.s[sk].lw);
+    }
+    const fin = x => ({ ...x, acc: x.n ? x.w / x.n : null, lo: x.n ? wil(x.n, x.w, 1.96) : null, hi: x.n ? 1 - wil(x.n, x.n - x.w, 1.96) : null });
+    const rows = o => Object.values(o).map(fin).sort((a, b) => b.n - a.n);
+    const assets = f.assets.map(x => {
+      const cs = S.candles[x.a] || [], sg = S.sigBy[x.a];
+      return { a: x.a, price: x.p === undefined ? null : x.p, ageMs: x.ageMs, candles: cs.length, d: sg ? sg.d : null, conf: sg ? sg.conf : null, cur: x.a === asset, locked: S.lock === x.a };
+    });
+    return {
+      version: SCRIPT_VERSION, now, asset, lock: S.lock, tf: CFG.tf, candles: arr.length,
+      candleLeftS: asset && S.lastTs[asset] && arr.length ? Math.max(0, Math.ceil(CFG.tf - (S.lastTs[asset] - arr[arr.length - 1].t))) : null,
+      feed: { status: f.status, since: f.since, source: f.source, lastPrice: f.lastPrice, lastTs: f.lastTs, lastAt: f.lastAt, ageMs: f.ageMs, latencyMs: f.latencyMs,
+        open: f.open, reconnects: f.reconnects, ticksOk: f.ticks.ok, ticksRej: f.ticks.rej, ticksDup: f.ticks.dup, reloadAdvice: !!f.reloadAdvice, why: f.pipeline ? f.pipeline.why : '' },
+      analysis, timing, signal,
+      dq: asset && S.dq[asset] ? copy(S.dq[asset]) : null,
+      assets, assetsScanned: Object.keys(S.candles).length,
+      signalsLogged: S.log.length,
+      stats: { total: fin({ k: 'all', n, w }), byAsset: rows(byAsset), byTf: rows(byTf), byStrat: rows(byStrat).map(x => ({ ...x, name: NM[x.k] || x.k })) },
+      log: S.log.slice(0, 200).map(e => ({ t: e.t, asset: e.asset, dir: e.dir, conf: e.conf, entry: e.entry, exit: e.exit, win: e.win, tie: !!e.tie, stale: !!e.stale, voided: !!e.voided, failed: !!e.failed, why: (e.why || []).map(String) })),
+      errors: S.errors.length, storeErr: !!S.storeErr,
+      cfg: { tf: CFG.tf, minConf: CFG.minConf, minQ: CFG.minQ, feedLiveMs: CFG.feedLiveMs, maxTickAgeMs: CFG.maxTickAgeMs, feedUnavailableMs: CFG.feedUnavailableMs, window: CFG.window, maxAssets: CFG.maxAssets }
+    };
+  }
+
   // حالة التغذية: نسخة من مراقب البيانات (engine/feed.js) دون تعديل
   const feed = () => E.fn.feedView();
-  E.provide({ view, lab, recorder, chart, settings, feed, activeCheck, norm });
+  E.provide({ view, lab, recorder, chart, settings, feed, dash, activeCheck, norm });
 };
 module.exports.activeCheck = activeCheck;
 module.exports.norm = norm;
@@ -2496,6 +2568,7 @@ const { readShownAsset, downloadText } = require('./platform/dom');
 const { createDiscovery } = require('./platform/discovery');
 const { installEnvProbe } = require('./platform/env');
 const { buildUI } = require('./ui/ui');
+const { buildShell } = require('./ui/shell');
 const core = {
   stats: require('./core/stats'), indicators: require('./core/indicators'), strategies: require('./core/strategies'),
   quality: require('./core/quality'), context: require('./core/context'), decision: require('./core/decision'), catalog: require('./core/catalog'),
@@ -2547,7 +2620,7 @@ function diagnostics() {
 // كل ما تراه الواجهة من المحرك
 const app = {
   win, doc: document,
-  vm: { view: F.view, lab: F.lab, recorder: F.recorder, chart: F.chart, settings: F.settings, feed: F.feed },
+  vm: { view: F.view, lab: F.lab, recorder: F.recorder, chart: F.chart, settings: F.settings, feed: F.feed, dash: F.dash },
   cmd: E.cmd,
   rec: { setOn: F.recSetOn, exportFile: F.recExport, importFile: F.recImport, scanGaps: F.recScanGaps, clear: F.recClear },
   on: E.on, tapped,
@@ -2556,8 +2629,19 @@ const app = {
   downloadText: (name, text, mime) => downloadText(win, name, text, mime),
   prefs: { get: F.LSget, set: F.LSset }
 };
-let uiHandle = null;
-const build = () => { if (!win.__WSNF25_NOUI) uiHandle = buildUI(app); };
+// V1.0: الواجهة الجديدة (ui/shell.js) هي الظاهرة. صفحات الإصدار السابق تُبنى مخفية وتُفتح من «متقدم» وتعود بزر «رجوع».
+let uiHandle = null, shellHandle = null;
+const showLegacy = on => {
+  if (uiHandle && uiHandle.host) uiHandle.host.style.display = on ? '' : 'none';
+  if (shellHandle && shellHandle.host) shellHandle.host.style.display = on ? 'none' : '';
+  if (on && uiHandle) { try { uiHandle.host.shadowRoot.getElementById('min').textContent = shellHandle.backLabel(); } catch (e) {} uiHandle.paint(); }
+  if (!on && shellHandle) shellHandle.go('dash');
+};
+const build = () => {
+  if (win.__WSNF25_NOUI) return;
+  shellHandle = buildShell(app, { openLegacy: () => showLegacy(true) });
+  uiHandle = buildUI(app, { embedded: true, onBack: () => showLegacy(false), backLabel: shellHandle ? shellHandle.backLabel() : '←' });
+};
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);
 else build();
 
@@ -2567,7 +2651,7 @@ if (TEST) {
   const Ln = E.learner, Cl = E.clusters, Q = core.quality, D = core.decision, X = core.context, I = core.indicators;
   const peek = a => S.A[F.AK(a)] || null;
   win.__WSNF25 = {
-    SIM_ONLY, S, CFG, E, core, app, get ui() { return uiHandle; },
+    SIM_ONLY, S, CFG, E, core, app, get ui() { return uiHandle; }, get shell() { return shellHandle; }, showLegacy,
     on: E.on, cmd: E.cmd, discovery, tapped,
     feedView: F.feedView, feedCheck: F.feedCheck, feedStages: F.feedStages, probe, onOutgoing: F.onOutgoing, computeStatus: F.computeStatus, ingestTicks: F.ingestTicks, ingestHistory: F.ingestHistory, feedState: () => E.feed,
     feedTick: F.feedTick, onClose: F.onClose, handle, getA: F.getA, AK: F.AK,
@@ -3315,6 +3399,616 @@ module.exports = function install(E) {
   E.provide({ REC, recMemBackend, recIdbBackend, recEvent, recSetOn, recRefreshSeries, recInit, recReject, recOnCandle, recEnqueue, recFlush, recScanGaps, recExport, recImport, recClear, REC_BYTES });
 };
 },
+/* ---- ui/i18n.js ---- */
+"ui/i18n": function (module, exports, require) {
+'use strict';
+// الواجهة — نصوص الواجهة الجديدة (V1.0) بالعربية والإنجليزية. بحتة: لا DOM ولا حالة.
+// ملاحظة: نصوص الأسباب التي يولّدها محرك التحليل نفسه (أسباب الامتناع، ملاحظات المؤشرات) ما زالت عربية فقط؛
+// ترجمتها ضمن المرحلة 6 (نظام الإشارات). الواجهة تذكر ذلك صراحةً في الوضع الإنجليزي.
+const AR = {
+  brand_sub: 'تحليل فقط · لا تنفيذ',
+  dev: 'V1.0 قيد التطوير',
+  nav_dash: 'لوحة التحكم', nav_market: 'السوق', nav_signals: 'الإشارات', nav_history: 'السجل', nav_alerts: 'التنبيهات', nav_settings: 'الإعدادات', nav_adv: 'متقدم',
+  minimize: 'تصغير', lang_switch: 'English', na: 'غير متاح', none: 'لا يوجد', ago_s: 'منذ {n} ث', ago_m: 'منذ {n} د', now: 'الآن',
+  // حالات البيانات
+  fs_disconnected: 'غير متصل', fs_connecting: 'جارٍ الاتصال', fs_connected: 'متصل — بانتظار البيانات', fs_live: 'بيانات حية',
+  fs_delayed: 'بيانات متأخرة', fs_stale: 'بيانات قديمة', fs_unavailable: 'البيانات غير متاحة', fs_error: 'خطأ في البيانات',
+  // محرك التوقيت
+  tm_wait: 'WAIT · انتظار', tm_analyzing: 'ANALYZING · تحليل', tm_favorable: 'FAVORABLE · ظروف مناسبة', tm_no_trade: 'NO TRADE · لا فرصة',
+  tc_data: 'بانتظار بيانات حية من المنصة', tc_history: 'تحميل تاريخ الأصل', tc_collect: 'تجميع الشموع {n}/{need}', tc_first: 'بانتظار إغلاق أول شمعة',
+  tc_stale: 'السعر متقادم — التحليل متوقف', tc_signal: 'توافقت شروط المحرك على إشارة', tc_engine: 'المحرك امتنع',
+  tm_prelim: 'مشتقة من قرار المحرك الحالي. محرك التوقيت المستقل والتقييم من 100: المرحلة 5.',
+  // محرك التحليل
+  an_idle: 'لا بيانات', an_loading: 'يحمّل التاريخ', an_paused: 'متوقف — البيانات غير حية', an_collecting: 'يجمع الشموع', an_active: 'يعمل',
+  // اللوحة
+  d_bot: 'حالة البوت', d_bot_on: 'يعمل', d_bot_wait: 'بانتظار البيانات', d_bot_sub: 'تحليل وإشارات فقط — لا ينفّذ صفقات',
+  d_conn: 'الاتصال بمصدر البيانات', d_src: 'المصدر: Pocket Option — اتصال الصفحة (قراءة فقط)',
+  d_asset: 'الأصل الحالي', d_asset_none: 'لم تصل بيانات أي أصل بعد', d_locked: 'مثبّت يدويًا', d_follow: 'يتبع الأصل المفتوح في المنصة',
+  d_tf: 'الإطار الزمني', d_trend: 'اتجاه السوق', d_strength: 'قوة الإشارة', d_strength_sub: 'درجة توافق المؤشرات — ليست احتمال نجاح',
+  d_last: 'آخر تحديث للأسعار', d_scanned: 'الأصول المفحوصة', d_scanned_sub: 'أصول وصلت بياناتها في هذه الجلسة',
+  d_signals: 'الإشارات المسجّلة', d_signals_sub: 'آخر 200 محفوظة · الإجمالي الحي {n}',
+  d_engine: 'محرك التحليل', d_timing: 'محرك اختيار التوقيت', d_recent: 'آخر التحليلات', d_no_recent: 'لا إشارات مسجّلة بعد',
+  d_candles: '{n} شمعة', d_next: 'إغلاق الشمعة بعد {n} ث', d_price: 'السعر',
+  up: 'صاعد', down: 'هابط', flat: 'غير محدد',
+  rg_trend: 'اتجاهي', rg_range: 'عرضي', rg_mixed: 'مختلط', rg_volatile: 'متقلب',
+  // السوق
+  m_chart: 'الشارت — {a}', m_chart_sub: 'آخر 90 شمعة مغلقة · EMA 9 و EMA 21', m_wait: 'بانتظار البيانات...',
+  m_assets: 'الأصول التي وصلت بياناتها', m_assets_note: 'المنصة تبث الأصل المفتوح على الشارت فقط. افتح أصلًا في المنصة ليظهر هنا (حتى {n} أصول في الذاكرة).',
+  m_col_asset: 'الأصل', m_col_price: 'آخر سعر', m_col_age: 'آخر تحديث', m_col_candles: 'الشموع', m_col_sig: 'آخر تحليل', m_col_act: 'الإجراء',
+  m_lock: 'حلّل هذا الأصل فقط', m_unlock: 'إلغاء التثبيت', m_current: 'الحالي', m_no_assets: 'لا أصول بعد',
+  m_ohlc: 'فتح {o} · أعلى {h} · أدنى {l} · إغلاق {c}',
+  // الإشارات
+  s_current: 'الإشارة الحالية', s_none: 'لا إشارة الآن', s_call: 'CALL · صعود', s_put: 'PUT · هبوط',
+  s_asset: 'الأصل', s_time: 'وقت الإشارة', s_tf: 'الإطار الزمني', s_eval: 'مدة التقييم', s_eval_v: 'شمعة واحدة ({n} ث) — تُسجَّل النتيجة عند إغلاق الشمعة التالية',
+  s_price: 'السعر وقت الإشارة', s_strength: 'قوة الإشارة', s_pro: 'المؤشرات المؤيدة', s_con: 'المؤشرات المعارضة', s_reason: 'سبب القرار',
+  s_timing: 'حالة التوقيت', s_quality: 'جودة البيانات', s_ctx: 'سياق السوق', s_clarity: 'وضوح {n}%', s_agree: 'عناقيد مستقلة متفقة: {n}', s_opp: 'وزن الأصوات المعاكسة: {n}%',
+  s_no_prob: 'لا تُعرض نسبة نجاح متوقعة: القوة تقيس توافق المؤشرات فقط. الدقة الفعلية في صفحة «السجل» من النتائج المسجّلة.',
+  s_recent: 'آخر الإشارات', s_engine_ar: '',
+  s_besthz: 'أنسب مدة مسجّلة: {s} ث (دقة {p}% في السجلات)',
+  // السجل
+  h_total: 'إجمالي الإشارات', h_right: 'الصحيحة', h_wrong: 'غير الصحيحة', h_acc: 'نسبة الدقة', h_ci: 'فاصل ثقة 95%: {lo}% – {hi}%', h_small: 'العينة صغيرة — النسبة غير موثوقة بعد',
+  h_by_asset: 'أداء كل أصل', h_by_tf: 'أداء كل إطار زمني', h_by_strat: 'أداء كل مؤشر (دقة تصويته على الشموع الحية)',
+  h_col_k: 'البند', h_col_n: 'العدد', h_col_w: 'صحيحة', h_col_acc: 'الدقة', h_col_ci: 'فاصل 95%',
+  h_log: 'سجل الإشارات (آخر 200)', h_id: 'الرقم', h_asset: 'الأصل', h_dir: 'الاتجاه', h_time: 'وقت الإشارة', h_entry: 'السعر عند الإشارة', h_exit: 'السعر عند التقييم',
+  h_res: 'النتيجة', h_score: 'القوة', h_why: 'السبب',
+  r_win: 'صحيحة', r_loss: 'غير صحيحة', r_tie: 'تعادل', r_pending: 'قيد التقييم', r_unknown: 'غير معروفة', r_void: 'ملغاة',
+  h_empty: 'لا نتائج مسجّلة بعد', h_note: 'كل الأرقام من نتائج فعلية مسجّلة على أسعار المنصة. الإطار الزمني لكل صف ورقم تسلسلي دائم: المرحلة 6.',
+  h_disclaimer: 'الدقة السابقة لا تضمن النتائج القادمة. لا يوجد دليل على أن هذا النظام مربح.',
+  // التنبيهات
+  a_title: 'مركز التنبيهات', a_clear: 'مسح الكل', a_empty: 'لا تنبيهات',
+  n_signal: 'إشارة جديدة: {a} {d} · قوة {c}', n_result_w: 'نتيجة إشارة: صحيحة', n_result_l: 'نتيجة إشارة: غير صحيحة',
+  n_asset: 'تغيّر الأصل: {from} ← {to}', n_feed: 'حالة البيانات: {s}', n_reload: 'لم تُعِد المنصة الاتصال — أعد تحميل الصفحة',
+  n_timing: 'محرك التوقيت: {s}', n_trend: 'تغيّر حالة السوق: {from} ← {to}', n_quality: 'جودة البيانات منخفضة: {q}%', n_conflict: 'تضارب في المؤشرات: {n}% أصوات معاكسة',
+  // الإعدادات
+  st_mode: 'وضع اختيار الأصل', st_mode_d: 'يدوي: يحلل الأصل الذي تثبّته فقط. متابعة المنصة: يحلل الأصل المفتوح على شارت المنصة.',
+  st_manual: 'يدوي', st_follow: 'متابعة المنصة', st_manual_need: 'لا أصل لتثبيته بعد — افتح أصلًا في المنصة أولًا',
+  st_tf: 'مدة الشمعة', st_tf_d: 'الأطر المتاحة الآن من التيكات الحية. تغييرها يعيد بناء الشموع من جديد. M5 إلى H1: المرحلة 4.',
+  st_min: 'الحد الأدنى لقوة الإشارة', st_min_d: 'لا تصدر إشارة تحت هذه الدرجة (50–90).',
+  st_lang: 'اللغة', st_lang_d: 'لغة الواجهة.',
+  st_alerts: 'التنبيهات', st_toasts: 'إشعارات منبثقة', st_toasts_d: 'تظهر أعلى الشاشة عند كل حدث مفعّل.', st_sound: 'صوت التنبيه', st_sound_d: 'نغمة قصيرة مع الإشعار. قد يتطلب المتصفح نقرة في الصفحة أولًا.',
+  st_types: 'أنواع التنبيهات', ty_signal: 'إشارة جديدة ونتيجتها', ty_conn: 'الاتصال وحالة البيانات', ty_asset: 'تغيّر الأصل', ty_quality: 'ضعف جودة البيانات', ty_timing: 'تغيّر حالة التوقيت', ty_trend: 'تغيّر حالة السوق', ty_conflict: 'تضارب المؤشرات',
+  st_ui: 'الواجهة', st_compact: 'عرض مضغوط', st_compact_d: 'هوامش وخطوط أصغر.', st_motion: 'الحركة والانتقالات', st_motion_d: 'عطّلها لواجهة ثابتة.',
+  st_conn: 'الاتصال', st_conn_d: 'المصدر الوحيد: قراءة سلبية لاتصال صفحة Pocket Option. غير موثّق رسميًا من المنصة. البوت لا يرسل أي رسالة ولا يستخدم رمز الجلسة.',
+  st_conn_live: 'حية حتى', st_conn_delay: 'متأخرة حتى (بعدها يتوقف التحليل)', st_conn_unav: 'غير متاحة بعد', st_conn_ro: 'عتبات الحداثة للعرض فقط؛ تعديلها ضمن المرحلة 3.',
+  st_pending: 'إعدادات لم تُبنَ بعد', st_p1: 'تفعيل وتعطيل المؤشرات — المرحلة 4', st_p2: 'أوزان التقييم من 100 — المرحلة 5', st_p3: 'الاختيار التلقائي لأفضل أصل وإطار — المرحلة 5',
+  on: 'مفعّل', off: 'معطّل', sec: '{n} ث',
+  // متقدم
+  adv_title: 'الأدوات المتقدمة', adv_d: 'صفحات الإصدار السابق كما هي: الاستراتيجيات، المختبر، مسجّل الشموع، الذاكرة، سجل الأخطاء وأداة استكشاف بيانات المنصة. الصفقات الافتراضية مخفية من الواجهة.',
+  adv_open: 'فتح الأدوات المتقدمة', adv_back: '← رجوع للواجهة', adv_errors: 'أخطاء مسجّلة: {n}', adv_store: 'تعذّر الحفظ في المتصفح',
+  disclaimer: 'أداة تحليل مستقلة غير تابعة لـ Pocket Option. الإشارات ليست نصيحة مالية ولا ضمان فيها.'
+};
+const EN = {
+  brand_sub: 'Analysis only · no execution',
+  dev: 'V1.0 in development',
+  nav_dash: 'Dashboard', nav_market: 'Market', nav_signals: 'Signals', nav_history: 'History', nav_alerts: 'Alerts', nav_settings: 'Settings', nav_adv: 'Advanced',
+  minimize: 'Minimize', lang_switch: 'العربية', na: 'N/A', none: 'None', ago_s: '{n}s ago', ago_m: '{n}m ago', now: 'now',
+  fs_disconnected: 'Disconnected', fs_connecting: 'Connecting', fs_connected: 'Connected — waiting for data', fs_live: 'Live data',
+  fs_delayed: 'Delayed data', fs_stale: 'Stale data', fs_unavailable: 'Data unavailable', fs_error: 'Data error',
+  tm_wait: 'WAIT', tm_analyzing: 'ANALYZING', tm_favorable: 'FAVORABLE', tm_no_trade: 'NO TRADE',
+  tc_data: 'Waiting for live data from the platform', tc_history: 'Loading asset history', tc_collect: 'Collecting candles {n}/{need}', tc_first: 'Waiting for the first candle close',
+  tc_stale: 'Price is stale — analysis paused', tc_signal: 'Engine conditions aligned on a signal', tc_engine: 'Engine abstained',
+  tm_prelim: 'Derived from the current engine decision. Standalone timing engine and 100-point score: phase 5.',
+  an_idle: 'No data', an_loading: 'Loading history', an_paused: 'Paused — data not live', an_collecting: 'Collecting candles', an_active: 'Running',
+  d_bot: 'Bot status', d_bot_on: 'Running', d_bot_wait: 'Waiting for data', d_bot_sub: 'Analysis and signals only — places no trades',
+  d_conn: 'Data source connection', d_src: 'Source: Pocket Option — page connection (read-only)',
+  d_asset: 'Current asset', d_asset_none: 'No asset data received yet', d_locked: 'Pinned manually', d_follow: 'Following the asset open on the platform',
+  d_tf: 'Timeframe', d_trend: 'Market direction', d_strength: 'Signal strength', d_strength_sub: 'Indicator agreement score — not a win probability',
+  d_last: 'Last price update', d_scanned: 'Assets scanned', d_scanned_sub: 'Assets whose data arrived this session',
+  d_signals: 'Signals logged', d_signals_sub: 'Last 200 kept · live total {n}',
+  d_engine: 'Analysis engine', d_timing: 'Timing engine', d_recent: 'Recent analyses', d_no_recent: 'No signals logged yet',
+  d_candles: '{n} candles', d_next: 'Candle closes in {n}s', d_price: 'Price',
+  up: 'Up', down: 'Down', flat: 'Undetermined',
+  rg_trend: 'Trending', rg_range: 'Ranging', rg_mixed: 'Mixed', rg_volatile: 'Volatile',
+  m_chart: 'Chart — {a}', m_chart_sub: 'Last 90 closed candles · EMA 9 and EMA 21', m_wait: 'Waiting for data...',
+  m_assets: 'Assets with received data', m_assets_note: 'The platform streams only the asset open on its chart. Open an asset there to see it here (up to {n} assets in memory).',
+  m_col_asset: 'Asset', m_col_price: 'Last price', m_col_age: 'Updated', m_col_candles: 'Candles', m_col_sig: 'Last analysis', m_col_act: 'Action',
+  m_lock: 'Analyze this asset only', m_unlock: 'Unpin', m_current: 'Current', m_no_assets: 'No assets yet',
+  m_ohlc: 'O {o} · H {h} · L {l} · C {c}',
+  s_current: 'Current signal', s_none: 'No signal now', s_call: 'CALL', s_put: 'PUT',
+  s_asset: 'Asset', s_time: 'Signal time', s_tf: 'Timeframe', s_eval: 'Evaluation period', s_eval_v: 'One candle ({n}s) — the outcome is recorded at the next candle close',
+  s_price: 'Price at signal', s_strength: 'Signal strength', s_pro: 'Supporting indicators', s_con: 'Opposing indicators', s_reason: 'Decision reason',
+  s_timing: 'Timing state', s_quality: 'Data quality', s_ctx: 'Market context', s_clarity: 'clarity {n}%', s_agree: 'Independent clusters agreeing: {n}', s_opp: 'Opposing vote weight: {n}%',
+  s_no_prob: 'No expected win rate is shown: strength only measures indicator agreement. Actual accuracy is on the History page, from recorded outcomes.',
+  s_recent: 'Recent signals', s_engine_ar: 'Reason texts generated by the analysis engine are still Arabic-only; translation is planned for phase 6.',
+  s_besthz: 'Best recorded duration: {s}s ({p}% accuracy in records)',
+  h_total: 'Total signals', h_right: 'Correct', h_wrong: 'Incorrect', h_acc: 'Accuracy', h_ci: '95% confidence interval: {lo}% – {hi}%', h_small: 'Small sample — the rate is not reliable yet',
+  h_by_asset: 'Performance by asset', h_by_tf: 'Performance by timeframe', h_by_strat: 'Performance by indicator (vote accuracy on live candles)',
+  h_col_k: 'Item', h_col_n: 'Count', h_col_w: 'Correct', h_col_acc: 'Accuracy', h_col_ci: '95% CI',
+  h_log: 'Signal log (last 200)', h_id: 'ID', h_asset: 'Asset', h_dir: 'Direction', h_time: 'Signal time', h_entry: 'Price at signal', h_exit: 'Price at evaluation',
+  h_res: 'Outcome', h_score: 'Strength', h_why: 'Reason',
+  r_win: 'Correct', r_loss: 'Incorrect', r_tie: 'Tie', r_pending: 'Pending', r_unknown: 'Unknown', r_void: 'Voided',
+  h_empty: 'No recorded outcomes yet', h_note: 'All figures come from actual outcomes recorded on platform prices. Per-row timeframe and a permanent serial number: phase 6.',
+  h_disclaimer: 'Past accuracy does not guarantee future results. There is no evidence that this system is profitable.',
+  a_title: 'Alert center', a_clear: 'Clear all', a_empty: 'No alerts',
+  n_signal: 'New signal: {a} {d} · strength {c}', n_result_w: 'Signal outcome: correct', n_result_l: 'Signal outcome: incorrect',
+  n_asset: 'Asset changed: {from} → {to}', n_feed: 'Data status: {s}', n_reload: 'The platform has not reconnected — reload the page',
+  n_timing: 'Timing engine: {s}', n_trend: 'Market state changed: {from} → {to}', n_quality: 'Low data quality: {q}%', n_conflict: 'Indicator conflict: {n}% opposing votes',
+  st_mode: 'Asset selection mode', st_mode_d: 'Manual: analyzes only the asset you pin. Follow platform: analyzes the asset open on the platform chart.',
+  st_manual: 'Manual', st_follow: 'Follow platform', st_manual_need: 'No asset to pin yet — open one on the platform first',
+  st_tf: 'Candle duration', st_tf_d: 'Timeframes available now from live ticks. Changing it rebuilds candles from scratch. M5 to H1: phase 4.',
+  st_min: 'Minimum signal strength', st_min_d: 'No signal is issued below this score (50–90).',
+  st_lang: 'Language', st_lang_d: 'Interface language.',
+  st_alerts: 'Alerts', st_toasts: 'Pop-up notifications', st_toasts_d: 'Shown at the top of the screen for each enabled event.', st_sound: 'Alert sound', st_sound_d: 'A short tone with the notification. The browser may require a click on the page first.',
+  st_types: 'Alert types', ty_signal: 'New signal and its outcome', ty_conn: 'Connection and data status', ty_asset: 'Asset change', ty_quality: 'Low data quality', ty_timing: 'Timing state change', ty_trend: 'Market state change', ty_conflict: 'Indicator conflict',
+  st_ui: 'Interface', st_compact: 'Compact view', st_compact_d: 'Smaller spacing and type.', st_motion: 'Motion and transitions', st_motion_d: 'Turn off for a static interface.',
+  st_conn: 'Connection', st_conn_d: 'Single source: passive reading of the Pocket Option page connection. Not officially documented by the platform. The bot sends no messages and does not use the session token.',
+  st_conn_live: 'Live up to', st_conn_delay: 'Delayed up to (analysis stops after)', st_conn_unav: 'Unavailable after', st_conn_ro: 'Freshness thresholds are read-only here; editing them is part of phase 3.',
+  st_pending: 'Settings not built yet', st_p1: 'Enable/disable indicators — phase 4', st_p2: '100-point score weights — phase 5', st_p3: 'Automatic best asset and timeframe selection — phase 5',
+  on: 'On', off: 'Off', sec: '{n}s',
+  adv_title: 'Advanced tools', adv_d: 'Pages from the previous version, unchanged: strategies, lab, candle recorder, memory, error log and the platform data discovery tool. Virtual trades are hidden from the interface.',
+  adv_open: 'Open advanced tools', adv_back: '← Back to interface', adv_errors: 'Logged errors: {n}', adv_store: 'Could not save to browser storage',
+  disclaimer: 'Independent analysis tool, not affiliated with Pocket Option. Signals are not financial advice and carry no guarantee.'
+};
+const DICT = { ar: AR, en: EN };
+const LANGS = ['ar', 'en'];
+function t(lang, key, vars) {
+  const d = DICT[lang] || AR;
+  let s = d[key];
+  if (s === undefined) s = AR[key];
+  if (s === undefined) return key;
+  return vars ? s.replace(/\{(\w+)\}/g, (m, k) => vars[k] === undefined || vars[k] === null ? '' : String(vars[k])) : s;
+}
+module.exports = { DICT, LANGS, t };
+},
+/* ---- ui/shell.js ---- */
+"ui/shell": function (module, exports, require) {
+'use strict';
+// الواجهة الجديدة (POCKET OPTION SMART BOT V1.0) — عرض فقط.
+// - لا تحسب أي مؤشر أو إحصاء: تقرأ app.vm.dash() و app.vm.chart() (نسخ جاهزة) وتنفّذ أوامر app.cmd الصريحة فقط.
+// - لا يوجد فيها أي زر أو كود تنفيذ على المنصة، ولا أي عنصر شكلي: كل عنصر تحكم مربوط بأمر حقيقي أو بتفضيل عرض محفوظ.
+// - ما لم يُبنَ بعد (الاختيار التلقائي للأصل، أوزان التقييم، الأطر M5–H1) يُذكر نصًا مع مرحلته، بلا أزرار.
+// - صفحات الإصدار السابق تبقى كما هي تحت «متقدم» (ui/ui.js بوضع embedded).
+const { t: tr, LANGS } = require('./i18n');
+const PREF_KEY = 'posb_ui';
+const NAME = 'POCKET OPTION SMART BOT';
+const ESC = s => String(s).replace(/[&<>"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+const PAGES = ['dash', 'market', 'signals', 'history', 'alerts', 'settings', 'adv'];
+const TYPES = ['signal', 'conn', 'asset', 'quality', 'timing', 'trend', 'conflict'];
+const RG_KEY = { 'اتجاهي': 'rg_trend', 'عرضي': 'rg_range', 'مختلط': 'rg_mixed', 'متقلب': 'rg_volatile' };
+const IND_EN = { trend: 'EMA trend', rsi: 'RSI', boll: 'Bollinger', macd: 'MACD', stoch: 'Stochastic', candles: 'Candle patterns', sr: 'Support/Resistance', break: 'Breakout',
+  ha: 'Heikin-Ashi', cci: 'CCI', willr: 'Williams %R', mom: 'Momentum', lin: 'Linear regression', streak: 'Streak exhaustion', pin: 'Rejection candle', squeeze: 'Squeeze breakout', kelt: 'Keltner' };
+const FEED_LVL = { live: 'ok', delayed: 'warn', connected: 'warn', connecting: 'warn', stale: 'bad', unavailable: 'bad', disconnected: 'bad', error: 'bad' };
+const TM_LVL = { wait: 'warn', analyzing: 'info', favorable: 'ok', no_trade: 'mute' };
+const ICON = {
+  dash: 'M3 3h8v10H3zM13 3h8v6h-8zM13 11h8v10h-8zM3 15h8v6H3z', market: 'M3 20h18M6 16V9M6 7V4M11 18v-6M11 10V6M16 14V8M16 6V3M20 17v-5',
+  signals: 'M12 3v4M12 17v4M3 12h4M17 12h4M12 9a3 3 0 100 6 3 3 0 000-6z', history: 'M4 5h16M4 10h16M4 15h10M4 20h7',
+  alerts: 'M6 16V11a6 6 0 1112 0v5l2 2H4zM10 21h4', settings: 'M4 7h10M18 7h2M4 17h2M10 17h10M16 4v6M8 14v6', adv: 'M5 12h.01M12 12h.01M19 12h.01'
+};
+const svg = k => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICON[k]}"/></svg>`;
+
+const CSS = `
+:host{all:initial}
+*{box-sizing:border-box;margin:0;padding:0}
+.app,.toasts{--bg:#0a0a0f;--p1:#13131b;--p2:#1b1b26;--line:#2a2a3a;--tx:#ececf4;--mu:#8e8ea6;--pu:#8b5cf6;--cy:#22d3ee;--ok:#34d399;--bad:#f87171;--warn:#fbbf24;--gap:14px;--fs:13px}
+.app{position:fixed;inset:0;z-index:2147483646;display:grid;grid-template-columns:216px 1fr;background:var(--bg);color:var(--tx);font:var(--fs)/1.55 "Segoe UI",Tahoma,system-ui,sans-serif}
+.app.compact{--gap:9px;--fs:12px}
+.app.hide{display:none}
+.app.motion .page{animation:in .22s ease both}
+.app.motion button,.app.motion .nav a,.app.motion .sw i,.app.motion .bar i{transition:background .15s,color .15s,border-color .15s,transform .15s,width .3s}
+@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.app .page{animation:none!important}.app *{transition:none!important}}
+button{font:inherit;color:inherit;cursor:pointer;background:var(--p2);border:1px solid var(--line);border-radius:8px;padding:6px 12px}
+button:hover{border-color:var(--pu)}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--cy);outline-offset:2px}
+select,input[type=number]{font:inherit;color:var(--tx);background:var(--p2);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+input[type=range]{accent-color:var(--pu);width:100%}
+.side{background:var(--p1);border-inline-end:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.brand{padding:18px 16px 14px;border-bottom:1px solid var(--line)}
+.brand b{display:block;font-size:13px;letter-spacing:.6px;line-height:1.3;background:linear-gradient(90deg,var(--pu),var(--cy));-webkit-background-clip:text;background-clip:text;color:transparent;direction:ltr;text-align:start}
+.brand small{display:block;color:var(--mu);font-size:11px;margin-top:4px}
+.nav{display:flex;flex-direction:column;gap:2px;padding:10px 8px;flex:1;overflow:auto}
+.nav a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:var(--mu);cursor:pointer;text-decoration:none;border:1px solid transparent;position:relative}
+.nav a:hover{color:var(--tx);background:var(--p2)}
+.nav a.on{color:var(--tx);background:linear-gradient(90deg,#8b5cf622,#22d3ee11);border-color:#8b5cf655}
+.nav .cnt{margin-inline-start:auto;background:var(--pu);color:#fff;border-radius:99px;font-size:10px;padding:0 6px;min-width:18px;text-align:center}
+.nav .cnt:empty{display:none}
+.foot{padding:10px 14px;border-top:1px solid var(--line);color:var(--mu);font-size:10.5px;line-height:1.5}
+.main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.top{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--p1)}
+.top h1{font-size:16px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:99px;padding:3px 10px;font-size:11.5px;white-space:nowrap;background:var(--p2)}
+.chip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--mu)}
+.chip.ok::before{background:var(--ok)}.chip.warn::before{background:var(--warn)}.chip.bad::before{background:var(--bad)}.chip.info::before{background:var(--cy)}
+.chip.ok{border-color:#34d39955}.chip.bad{border-color:#f8717155}.chip.warn{border-color:#fbbf2455}.chip.info{border-color:#22d3ee55}
+.body{flex:1;overflow:auto;padding:var(--gap) 18px 28px}
+.page{display:none}.page.on{display:block}
+.grid{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.cols{display:grid;gap:var(--gap);grid-template-columns:minmax(0,3fr) minmax(0,2fr);margin-top:var(--gap)}
+.card{background:var(--p1);border:1px solid var(--line);border-radius:12px;padding:calc(var(--gap) + 1px);min-width:0}
+.card h3{font-size:12px;font-weight:600;color:var(--mu);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.kv b{display:block;font-size:19px;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+.kv small,.note{color:var(--mu);font-size:11.5px;display:block;margin-top:3px}
+.ok-t{color:var(--ok)}.bad-t{color:var(--bad)}.warn-t{color:var(--warn)}.cy-t{color:var(--cy)}.pu-t{color:var(--pu)}.mu-t{color:var(--mu)}
+.bar{height:6px;border-radius:99px;background:var(--p2);overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--pu),var(--cy));border-radius:99px}
+.scroll{overflow:auto;max-height:440px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{color:var(--mu);font-weight:500;text-align:start;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;position:sticky;top:0;background:var(--p1)}
+td{padding:6px 8px;border-bottom:1px solid #2a2a3a66;vertical-align:top}
+td.num,th.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{border-radius:6px;padding:2px 8px;font-size:11.5px;border:1px solid var(--line);background:var(--p2)}
+.tag.pro{border-color:#34d39955;color:var(--ok)}.tag.con{border-color:#f8717155;color:var(--bad)}
+.sig{border-inline-start:3px solid var(--line)}.sig.call{border-inline-start-color:var(--ok)}.sig.put{border-inline-start-color:var(--bad)}
+.sig .big{font-size:26px;font-weight:700;letter-spacing:.5px}
+.dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin-top:10px}
+.dl dt{color:var(--mu);white-space:nowrap}.dl dd{min-width:0;overflow-wrap:anywhere}
+canvas{width:100%;height:340px;display:block;border-radius:8px;background:var(--bg)}
+.row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #2a2a3a66;flex-wrap:wrap}
+.row:last-child{border-bottom:0}
+.row .lbl{flex:1;min-width:180px}.row .lbl b{font-weight:600;display:block}
+.row .ctl{display:flex;align-items:center;gap:8px;min-width:150px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-radius:0;background:transparent;color:var(--mu)}
+.seg button.on{background:var(--pu);color:#fff}
+.sw{width:40px;height:22px;border-radius:99px;background:var(--p2);border:1px solid var(--line);position:relative;padding:0;flex:none}
+.sw i{position:absolute;top:2px;inset-inline-start:2px;width:16px;height:16px;border-radius:50%;background:var(--mu)}
+.sw.on{background:#8b5cf644;border-color:var(--pu)}.sw.on i{background:var(--pu);inset-inline-start:20px}
+.toasts{position:fixed;bottom:16px;inset-inline-end:16px;z-index:2147483647;display:flex;flex-direction:column;gap:8px;width:min(340px,calc(100vw - 28px));pointer-events:none}
+.toast{background:var(--p2);border:1px solid var(--line);border-inline-start:3px solid var(--cy);border-radius:10px;padding:10px 12px;box-shadow:0 8px 24px #0008;font-size:12.5px;color:var(--tx);font-family:"Segoe UI",Tahoma,system-ui,sans-serif}
+.toast.ok{border-inline-start-color:var(--ok)}.toast.bad{border-inline-start-color:var(--bad)}.toast.warn{border-inline-start-color:var(--warn)}
+.al{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #2a2a3a66}
+.al time{color:var(--mu);font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.pill{position:fixed;z-index:2147483647;display:none;align-items:center;gap:8px;background:#13131bee;border:1px solid #8b5cf688;border-radius:99px;padding:7px 14px;color:#ececf4;font:12px "Segoe UI",Tahoma,sans-serif;cursor:grab;user-select:none;touch-action:none;box-shadow:0 6px 20px #0009}
+.pill.show{display:flex}
+.pill i{width:8px;height:8px;border-radius:50%;background:#8e8ea6}.pill.ok i{background:#34d399}.pill.warn i{background:#fbbf24}.pill.bad i{background:#f87171}
+.empty{color:var(--mu);padding:18px 0;text-align:center}
+@media(max-width:820px){
+  .app{grid-template-columns:1fr;grid-template-rows:1fr auto}
+  .side{order:2;border-inline-end:0;border-top:1px solid var(--line)}
+  .brand,.foot{display:none}
+  .nav{flex-direction:row;padding:4px;gap:0;overflow-x:auto}
+  .nav a{flex:1;flex-direction:column;gap:2px;font-size:10px;padding:6px 2px;min-width:48px;text-align:center}
+  .nav .cnt{position:absolute;top:2px;inset-inline-end:8px;margin:0}
+  .top{padding:10px 12px;flex-wrap:wrap}.top h1{font-size:14px;flex-basis:100%}
+  .body{padding:10px 10px 20px}
+  .cols{grid-template-columns:1fr}
+  .grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  canvas{height:240px}
+  .toasts{bottom:72px;inset-inline-end:10px}
+  .kv b{font-size:16px}
+}`;
+
+// app: نفس العقد الذي تراه الواجهة القديمة + app.vm.dash. opts: { openLegacy(), closeLegacy() }
+function buildShell(app, opts) {
+  const doc = app.doc, win = app.win;
+  if (doc.getElementById('posb-host')) return null;
+  const host = doc.createElement('div');
+  host.id = 'posb-host';
+  doc.documentElement.appendChild(host);
+  const sh = host.attachShadow({ mode: 'open' });
+  const saved = app.prefs.get(PREF_KEY, null) || {};
+  const P = { lang: 'ar', min: false, x: 14, y: 90, sound: false, toasts: true, compact: false, motion: true, page: 'dash', ...saved, types: { ...Object.fromEntries(TYPES.map(k => [k, true])), ...(saved.types || {}) } };
+  if (!LANGS.includes(P.lang)) P.lang = 'ar';
+  if (!PAGES.includes(P.page) || P.page === 'adv') P.page = 'dash';
+  const save = () => app.prefs.set(PREF_KEY, P);
+  const T = (k, v) => tr(P.lang, k, v);
+  const $ = id => sh.getElementById(id);
+  const cmd = app.cmd;
+
+  sh.innerHTML = '<style>' + CSS + '</style>' +
+    '<div class="app" id="app"><aside class="side"><div class="brand"><b>' + NAME + '</b><small id="bsub"></small></div><nav class="nav" id="nav"></nav><div class="foot" id="foot"></div></aside>' +
+    '<div class="main"><div class="top"><h1 id="title"></h1><span class="chip" id="cFeed"></span><span class="chip" id="cTm"></span><button id="lang"></button><button id="min"></button></div>' +
+    '<div class="body" id="body">' + PAGES.map(p => '<section class="page" data-page="' + p + '" id="pg-' + p + '"></section>').join('') + '</div></div></div>' +
+    '<div class="toasts" id="toasts" aria-live="polite"></div><div class="pill" id="pill"><i></i><span id="pillT"></span></div>';
+  const root = $('app'), pill = $('pill');
+
+  // ---------- تنسيق ----------
+  const tm = ms => ms ? new Date(ms).toLocaleTimeString('en-GB', { hour12: false }) : T('na');
+  const ago = ms => ms === null || ms === undefined ? T('na') : ms < 1500 ? T('now') : ms < 9e4 ? T('ago_s', { n: Math.round(ms / 1000) }) : T('ago_m', { n: Math.round(ms / 6e4) });
+  const tfL = s => s % 3600 === 0 ? 'H' + s / 3600 : s % 60 === 0 ? 'M' + s / 60 : 'S' + s;
+  const pct = x => x === null || x === undefined ? T('na') : (x * 100).toFixed(1) + '%';
+  const px = v => v === null || v === undefined ? T('na') : String(v);
+  const rgL = r => RG_KEY[r] ? T(RG_KEY[r]) : (r && r !== '-' ? ESC(r) : T('flat'));
+  const indL = x => ESC(P.lang === 'en' && IND_EN[x.k] ? IND_EN[x.k] : x.name);
+  const dirL = d => d === 'call' ? '▲ CALL' : d === 'put' ? '▼ PUT' : '—';
+  const dirC = d => d === 'call' ? 'ok-t' : d === 'put' ? 'bad-t' : 'mu-t';
+  const tmWhy = x => x.code === 'engine' ? (x.text ? ESC(x.text) : T('tc_engine')) : T('tc_' + x.code, x);
+  const resL = e => e.win === true ? ['r_win', 'ok-t'] : e.win === false ? ['r_loss', 'bad-t'] : e.tie ? ['r_tie', 'mu-t'] : e.voided || e.failed ? ['r_void', 'mu-t'] : e.stale ? ['r_unknown', 'warn-t'] : ['r_pending', 'cy-t'];
+  const kv = (title, val, sub, cls) => `<div class="card kv"><h3>${title}</h3><b class="${cls || ''}">${val}</b>${sub ? '<small>' + sub + '</small>' : ''}</div>`;
+  const put = (id, html) => { const el = typeof id === 'string' ? $(id) : id; if (el && el.__h !== html) { el.__h = html; el.innerHTML = html; } };
+
+  // ---------- التنبيهات ----------
+  const alerts = [];
+  let unread = 0, actx = null;
+  function beep(level) {
+    if (!P.sound) return;
+    try {
+      const AC = win.AudioContext || win.webkitAudioContext;
+      if (!AC) return;
+      actx = actx || new AC();
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.frequency.value = level === 'bad' ? 330 : level === 'ok' ? 880 : 660;
+      g.gain.setValueAtTime(.06, actx.currentTime); g.gain.exponentialRampToValueAtTime(.0001, actx.currentTime + .25);
+      o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + .26);
+    } catch (e) {}
+  }
+  // key/vars تُحفظ بدل النص: التنبيه يُعاد ترجمته عند تغيير اللغة
+  function notify(type, level, key, vars) {
+    if (!P.types[type]) return;
+    alerts.unshift({ at: Date.now(), type, level, key, vars: vars || {} });
+    if (alerts.length > 100) alerts.pop();
+    if (P.page !== 'alerts' || P.min) unread++;
+    if (P.toasts) {
+      const el = doc.createElement('div');
+      el.className = 'toast ' + level;
+      el.textContent = alertText(alerts[0]);
+      el.dir = P.lang === 'ar' ? 'rtl' : 'ltr';
+      $('toasts').prepend(el);
+      while ($('toasts').children.length > 4) $('toasts').lastElementChild.remove();
+      win.setTimeout(() => el.remove(), 5000);
+    }
+    beep(level);
+    paintNav();
+  }
+  const alertText = a => { const v = { ...a.vars }; if (v.sKey) v.s = T(v.sKey); if (v.fromRg) v.from = rgL(v.fromRg); if (v.toRg) v.to = rgL(v.toRg); return T(a.key, v); };
+  app.on('signal', e => notify('signal', e.dir === 'call' ? 'ok' : 'bad', 'n_signal', { a: e.asset, d: e.dir === 'call' ? 'CALL' : 'PUT', c: e.conf }));
+  app.on('result', w => notify('signal', w ? 'ok' : 'bad', w ? 'n_result_w' : 'n_result_l'));
+  app.on('asset', x => notify('asset', 'info', 'n_asset', { from: x.from, to: x.to }));
+  app.on('feed', x => notify('conn', FEED_LVL[x.to] || 'info', 'n_feed', { sKey: 'fs_' + x.to }));
+  app.on('reloadAdvice', () => notify('conn', 'bad', 'n_reload'));
+  let prev = null;
+  function derive(D) {
+    const cur = { tm: D.timing.state, rg: D.signal && D.signal.regime !== '-' ? D.signal.regime : null, lowQ: !!(D.dq && D.dq.q < D.cfg.minQ), q: D.dq ? D.dq.q : null,
+      conflict: !!(D.signal && D.signal.oppPct !== null && D.signal.oppPct >= 30), opp: D.signal ? D.signal.oppPct : null, asset: D.asset };
+    if (prev && prev.asset === cur.asset) {
+      if (cur.tm !== prev.tm) notify('timing', TM_LVL[cur.tm] === 'mute' ? 'info' : TM_LVL[cur.tm], 'n_timing', { sKey: 'tm_' + cur.tm });
+      if (cur.rg && prev.rg && cur.rg !== prev.rg) notify('trend', 'info', 'n_trend', { fromRg: prev.rg, toRg: cur.rg });
+      if (cur.lowQ && !prev.lowQ) notify('quality', 'warn', 'n_quality', { q: cur.q });
+      if (cur.conflict && !prev.conflict) notify('conflict', 'warn', 'n_conflict', { n: cur.opp });
+    }
+    prev = cur;
+  }
+
+  // ---------- الهيكل ----------
+  function paintNav() {
+    put('nav', PAGES.map(p => `<a data-p="${p}" class="${P.page === p ? 'on' : ''}" role="button" tabindex="0">${svg(p)}<span>${T('nav_' + p)}</span>${p === 'alerts' ? '<span class="cnt">' + (unread || '') + '</span>' : ''}</a>`).join(''));
+  }
+  function chrome() {
+    root.dir = P.lang === 'ar' ? 'rtl' : 'ltr';
+    root.lang = P.lang;
+    root.classList.toggle('compact', !!P.compact);
+    root.classList.toggle('motion', !!P.motion);
+    $('bsub').textContent = T('brand_sub') + ' · ' + T('dev');
+    $('foot').textContent = T('disclaimer');
+    $('lang').textContent = T('lang_switch');
+    $('min').textContent = T('minimize') + ' ▾';
+    $('title').textContent = T('nav_' + P.page);
+    paintNav();
+  }
+  function go(p) {
+    if (!PAGES.includes(p)) return;
+    P.page = p; if (p !== 'adv') save();
+    if (p === 'alerts') unread = 0;
+    sh.querySelectorAll('.page').forEach(x => x.classList.toggle('on', x.dataset.page === p));
+    chrome();
+    if (p === 'settings') buildSettings();
+    paint();
+  }
+  const navAct = e => { const a = e.target.closest('a[data-p]'); if (a) go(a.dataset.p); };
+  $('nav').onclick = navAct;
+  $('nav').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navAct(e); } };
+  $('lang').onclick = () => { P.lang = P.lang === 'ar' ? 'en' : 'ar'; save(); sh.querySelectorAll('.page').forEach(x => { x.__h = null; }); go(P.page); };
+  function setMin(m) {
+    P.min = m; save();
+    root.classList.toggle('hide', m);
+    pill.classList.toggle('show', m);
+    if (!m) paint();
+  }
+  $('min').onclick = () => setMin(true);
+  pill.style.left = P.x + 'px'; pill.style.top = P.y + 'px';
+  let drag = null;
+  pill.onpointerdown = e => { drag = { sx: e.clientX, sy: e.clientY, x: pill.offsetLeft, y: pill.offsetTop, mv: false }; try { pill.setPointerCapture(e.pointerId); } catch (_) {} };
+  pill.onpointermove = e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if (Math.abs(dx) + Math.abs(dy) > 5) drag.mv = true;
+    if (drag.mv) { pill.style.left = Math.max(0, drag.x + dx) + 'px'; pill.style.top = Math.max(0, drag.y + dy) + 'px'; }
+  };
+  pill.onpointerup = () => {
+    if (drag && !drag.mv) setMin(false);
+    else if (drag) { P.x = pill.offsetLeft; P.y = pill.offsetTop; save(); }
+    drag = null;
+  };
+
+  // ---------- الصفحات ----------
+  function pDash(D) {
+    const f = D.feed, s = D.signal, live = f.status === 'live' || f.status === 'delayed', has = s && s.d !== 'none';
+    const trend = s && s.sd ? (s.sd > 0 ? '▲ ' + T('up') : '▼ ' + T('down')) : T('flat');
+    const cards =
+      kv(T('d_bot'), live ? T('d_bot_on') : T('d_bot_wait'), T('d_bot_sub'), live ? 'ok-t' : 'warn-t') +
+      kv(T('d_conn'), T('fs_' + f.status), T('d_src') + (f.why ? '<br>' + ESC(f.why) : ''), FEED_LVL[f.status] + '-t') +
+      kv(T('d_asset'), D.asset ? ESC(D.asset) : T('na'), D.asset ? (D.lock ? T('d_locked') : T('d_follow')) + ' · ' + T('d_candles', { n: D.candles }) : T('d_asset_none')) +
+      kv(T('d_tf'), tfL(D.tf), D.candleLeftS !== null && live ? T('d_next', { n: D.candleLeftS }) : T('sec', { n: D.tf })) +
+      kv(T('d_trend'), trend, s ? rgL(s.regime) + (s.ctx ? ' · ' + ESC(s.ctx.label) + ' · ' + T('s_clarity', { n: s.ctx.clarity }) : '') : '', s && s.sd ? (s.sd > 0 ? 'ok-t' : 'bad-t') : 'mu-t') +
+      `<div class="card kv"><h3>${T('d_strength')}</h3><b class="${has ? dirC(s.d) : 'mu-t'}">${has ? s.conf + ' / 100 · ' + dirL(s.d) : '—'}</b><div class="bar"><i style="width:${has ? s.conf : 0}%"></i></div><small>${T('d_strength_sub')}</small></div>` +
+      kv(T('d_last'), f.lastPrice !== null ? px(f.lastPrice) : T('na'), ago(f.ageMs) + (f.lastAt ? ' · ' + tm(f.lastAt) : ''), f.ageMs !== null && f.ageMs <= D.cfg.maxTickAgeMs ? '' : 'warn-t') +
+      kv(T('d_scanned'), D.assetsScanned, T('d_scanned_sub')) +
+      kv(T('d_signals'), D.signalsLogged, T('d_signals_sub', { n: D.stats.total.n })) +
+      kv(T('d_engine'), T('an_' + D.analysis), D.dq ? T('s_quality') + ': ' + D.dq.q + '%' : '', D.analysis === 'active' ? 'ok-t' : D.analysis === 'idle' || D.analysis === 'paused' ? 'warn-t' : 'cy-t') +
+      kv(T('d_timing'), T('tm_' + D.timing.state), tmWhy(D.timing) + '<br>' + T('tm_prelim'), (TM_LVL[D.timing.state] === 'mute' ? 'mu' : TM_LVL[D.timing.state] === 'info' ? 'cy' : TM_LVL[D.timing.state]) + '-t');
+    const rec = D.log.slice(0, 8).map(e => { const [rk, rc] = resL(e); return `<tr><td class="num">${tm(e.t)}</td><td>${ESC(e.asset)}</td><td class="num ${dirC(e.dir)}">${dirL(e.dir)}</td><td class="num">${e.conf}</td><td class="num ${rc}">${T(rk)}</td></tr>`; }).join('');
+    return `<div class="grid">${cards}</div><div class="card" style="margin-top:var(--gap)"><h3>${T('d_recent')}</h3>` +
+      (rec ? `<div class="scroll"><table><thead><tr><th>${T('h_time')}</th><th>${T('h_asset')}</th><th>${T('h_dir')}</th><th>${T('h_score')}</th><th>${T('h_res')}</th></tr></thead><tbody>${rec}</tbody></table></div>` : `<div class="empty">${T('d_no_recent')}</div>`) + '</div>';
+  }
+  function pMarketTable(D) {
+    const rows = D.assets.map(a => `<tr><td>${ESC(a.a)}${a.cur ? ' <span class="tag">' + T('m_current') + '</span>' : ''}</td><td class="num">${px(a.price)}</td><td class="num">${ago(a.ageMs)}</td><td class="num">${a.candles}</td>` +
+      `<td class="${dirC(a.d)}">${a.d && a.d !== 'none' ? dirL(a.d) + ' ' + a.conf : '—'}</td><td>${a.locked ? `<button data-unlock="1">${T('m_unlock')}</button>` : a.candles ? `<button data-lock="${ESC(a.a)}">${T('m_lock')}</button>` : ''}</td></tr>`).join('');
+    return `<h3>${T('m_assets')}</h3>` + (rows ? `<div class="scroll"><table><thead><tr><th>${T('m_col_asset')}</th><th>${T('m_col_price')}</th><th>${T('m_col_age')}</th><th>${T('m_col_candles')}</th><th>${T('m_col_sig')}</th><th>${T('m_col_act')}</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty">${T('m_no_assets')}</div>`) +
+      `<div class="note">${T('m_assets_note', { n: D.cfg.maxAssets })}</div>`;
+  }
+  function sigCard(D) {
+    const s = D.signal, has = s && s.d !== 'none', last = has ? D.log.find(e => e.asset === D.asset && e.dir === s.d) : null;
+    const tags = (xs, cls) => xs.length ? '<div class="tags">' + xs.map(x => `<span class="tag ${cls}">${indL(x)}</span>`).join('') + '</div>' : `<span class="mu-t">${T('none')}</span>`;
+    const reason = s ? (has ? s.notes : s.abst.concat(s.notes)).map(ESC).join(' · ') : '';
+    const lvl = TM_LVL[D.timing.state];
+    return `<div class="card sig ${has ? s.d : ''}"><h3>${T('s_current')}</h3><div class="big ${has ? dirC(s.d) : 'mu-t'}">${has ? T(s.d === 'call' ? 's_call' : 's_put') : T('s_none')}</div>` +
+      '<dl class="dl">' +
+      `<dt>${T('s_asset')}</dt><dd>${D.asset ? ESC(D.asset) : T('na')}</dd>` +
+      `<dt>${T('s_time')}</dt><dd>${last ? tm(last.t) : '—'}</dd>` +
+      `<dt>${T('s_tf')}</dt><dd>${tfL(D.tf)}</dd>` +
+      `<dt>${T('s_eval')}</dt><dd>${T('s_eval_v', { n: D.tf })}${s && s.bestHz ? '<br><span class="mu-t">' + T('s_besthz', { s: s.bestHz.s, p: s.bestHz.accPct }) + '</span>' : ''}</dd>` +
+      `<dt>${T('s_price')}</dt><dd>${last ? px(last.entry) : '—'}</dd>` +
+      `<dt>${T('s_strength')}</dt><dd>${has ? s.conf + ' / 100' : '—'}<div class="bar"><i style="width:${has ? s.conf : 0}%"></i></div></dd>` +
+      `<dt>${T('s_pro')}</dt><dd>${s ? tags(s.pro, 'pro') : '—'}</dd>` +
+      `<dt>${T('s_con')}</dt><dd>${s ? tags(s.con, 'con') : '—'}${s && s.oppPct !== null ? '<span class="note">' + T('s_opp', { n: s.oppPct }) + (s.agree !== null ? ' · ' + T('s_agree', { n: s.agree }) : '') + '</span>' : ''}</dd>` +
+      `<dt>${T('s_ctx')}</dt><dd>${s ? rgL(s.regime) + (s.ctx ? ' · ' + ESC(s.ctx.label) + ' · ' + T('s_clarity', { n: s.ctx.clarity }) : '') : '—'}</dd>` +
+      `<dt>${T('s_reason')}</dt><dd>${reason || '—'}</dd>` +
+      `<dt>${T('s_timing')}</dt><dd><span class="chip ${lvl === 'mute' ? '' : lvl}">${T('tm_' + D.timing.state)}</span> <span class="mu-t">${tmWhy(D.timing)}</span></dd>` +
+      `<dt>${T('s_quality')}</dt><dd>${D.dq ? D.dq.q + '%' + (D.dq.issues && D.dq.issues.length ? ' <span class="mu-t">(' + D.dq.issues.map(ESC).join(P.lang === 'ar' ? '، ' : ', ') + ')</span>' : '') : T('na')} · ${T('fs_' + D.feed.status)}</dd>` +
+      '</dl>' + `<div class="note">${T('s_no_prob')}</div>` + (T('s_engine_ar') ? `<div class="note">${T('s_engine_ar')}</div>` : '') + '</div>';
+  }
+  const logRows = (D, n) => D.log.slice(0, n).map(e => {
+    const [rk, rc] = resL(e);
+    return `<tr><td class="num">${Math.floor(e.t / 1000).toString(36).toUpperCase()}</td><td>${ESC(e.asset)}</td><td class="num ${dirC(e.dir)}">${dirL(e.dir)}</td><td class="num">${new Date(e.t).toLocaleDateString('en-GB')} ${tm(e.t)}</td><td class="num">${px(e.entry)}</td><td class="num">${e.exit === null ? '—' : px(e.exit)}</td><td class="num ${rc}">${T(rk)}</td><td class="num">${e.conf}</td><td>${e.why.map(ESC).join(' · ')}</td></tr>`;
+  }).join('');
+  const logTable = (D, n) => { const r = logRows(D, n); return r ? `<div class="scroll"><table><thead><tr><th>${T('h_id')}</th><th>${T('h_asset')}</th><th>${T('h_dir')}</th><th>${T('h_time')}</th><th>${T('h_entry')}</th><th>${T('h_exit')}</th><th>${T('h_res')}</th><th>${T('h_score')}</th><th>${T('h_why')}</th></tr></thead><tbody>${r}</tbody></table></div>` : `<div class="empty">${T('d_no_recent')}</div>`; };
+  function pSignals(D) { return sigCard(D) + `<div class="card" style="margin-top:var(--gap)"><h3>${T('s_recent')}</h3>${logTable(D, 15)}</div>`; }
+  function pHistory(D) {
+    const S = D.stats, tt = S.total, ci = x => x.n ? Math.round(x.lo * 100) + '–' + Math.round(x.hi * 100) + '%' : '—';
+    const tbl = (title, rows, lab) => `<div class="card"><h3>${title}</h3>` + (rows.length ? `<div class="scroll" style="max-height:260px"><table><thead><tr><th>${T('h_col_k')}</th><th>${T('h_col_n')}</th><th>${T('h_col_w')}</th><th>${T('h_col_acc')}</th><th>${T('h_col_ci')}</th></tr></thead><tbody>` +
+      rows.map(r => `<tr><td>${lab(r)}</td><td class="num">${r.n}</td><td class="num">${r.w}</td><td class="num">${pct(r.acc)}</td><td class="num">${ci(r)}</td></tr>`).join('') + '</tbody></table></div>' : `<div class="empty">${T('h_empty')}</div>`) + '</div>';
+    return '<div class="grid">' + kv(T('h_total'), tt.n) + kv(T('h_right'), tt.w, '', 'ok-t') + kv(T('h_wrong'), tt.n - tt.w, '', 'bad-t') +
+      kv(T('h_acc'), tt.n ? pct(tt.acc) : '—', tt.n ? T('h_ci', { lo: Math.round(tt.lo * 100), hi: Math.round(tt.hi * 100) }) + (tt.n < 100 ? '<br>' + T('h_small') : '') : T('h_empty')) + '</div>' +
+      `<div class="note" style="margin:8px 2px">${T('h_disclaimer')}</div>` +
+      '<div class="cols" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">' + tbl(T('h_by_asset'), S.byAsset, r => ESC(r.k)) + tbl(T('h_by_tf'), S.byTf, r => tfL(+r.k)) + tbl(T('h_by_strat'), S.byStrat, r => indL(r)) + '</div>' +
+      `<div class="card" style="margin-top:var(--gap)"><h3>${T('h_log')}</h3>${logTable(D, 200)}<div class="note">${T('h_note')}</div></div>`;
+  }
+  function pAlerts() {
+    return `<div class="card"><h3>${T('a_title')} <button id="aClr" style="margin-inline-start:auto">${T('a_clear')}</button></h3>` +
+      (alerts.length ? alerts.map(a => `<div class="al"><time>${tm(a.at)}</time><span class="${a.level === 'info' ? 'cy' : a.level}-t">●</span><span>${ESC(alertText(a))}</span></div>`).join('') : `<div class="empty">${T('a_empty')}</div>`) + '</div>';
+  }
+  function pAdv(D) {
+    return `<div class="card"><h3>${T('adv_title')}</h3><p>${T('adv_d')}</p><div class="row"><button id="advOpen">${T('adv_open')}</button><span class="chip ${D.errors ? 'warn' : 'ok'}">${T('adv_errors', { n: D.errors })}</span>${D.storeErr ? '<span class="chip bad">' + T('adv_store') + '</span>' : ''}</div></div>`;
+  }
+  // الإعدادات تُبنى عند الدخول فقط (لا تُعاد كل ثانية حتى لا تُقاطع المستخدم)، وكل عنصر فيها مربوط بأمر أو تفضيل فعلي
+  function buildSettings() {
+    const D = app.vm.dash(), c = D.cfg;
+    const row = (k, ctl, d) => `<div class="row"><div class="lbl"><b>${T(k)}</b>${d ? '<span class="note">' + T(d) + '</span>' : ''}</div><div class="ctl">${ctl}</div></div>`;
+    const sw = (id, on) => `<button class="sw ${on ? 'on' : ''}" id="${id}" role="switch" aria-checked="${!!on}"><i></i></button>`;
+    const seg = (id, items, cur) => `<div class="seg" id="${id}">${items.map(([v, l]) => `<button data-v="${v}" class="${String(cur) === String(v) ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+    const el = $('pg-settings');
+    el.__h = null;
+    el.innerHTML =
+      '<div class="card">' +
+      row('st_mode', seg('sMode', [['manual', T('st_manual')], ['follow', T('st_follow')]], D.lock ? 'manual' : 'follow') + '<span class="note" id="sModeN"></span>', 'st_mode_d') +
+      row('st_tf', `<select id="sTf">${[15, 30, 60].map(v => `<option value="${v}" ${v === c.tf ? 'selected' : ''}>${tfL(v)} (${T('sec', { n: v })})</option>`).join('')}</select>`, 'st_tf_d') +
+      row('st_min', `<input type="range" id="sMin" min="50" max="90" value="${c.minConf}"><b id="sMinV">${c.minConf}</b>`, 'st_min_d') +
+      row('st_lang', seg('sLang', [['ar', 'العربية'], ['en', 'English']], P.lang), 'st_lang_d') + '</div>' +
+      `<div class="card" style="margin-top:var(--gap)"><h3>${T('st_alerts')}</h3>` + row('st_toasts', sw('sToasts', P.toasts), 'st_toasts_d') + row('st_sound', sw('sSound', P.sound), 'st_sound_d') +
+      `<h3 style="margin-top:12px">${T('st_types')}</h3>` + TYPES.map(k => row('ty_' + k, sw('sTy-' + k, P.types[k]))).join('') + '</div>' +
+      `<div class="card" style="margin-top:var(--gap)"><h3>${T('st_ui')}</h3>` + row('st_compact', sw('sCompact', P.compact), 'st_compact_d') + row('st_motion', sw('sMotion', P.motion), 'st_motion_d') + '</div>' +
+      `<div class="card" style="margin-top:var(--gap)"><h3>${T('st_conn')}</h3><p class="note">${T('st_conn_d')}</p><dl class="dl"><dt>${T('st_conn_live')}</dt><dd>${T('sec', { n: c.feedLiveMs / 1000 })}</dd><dt>${T('st_conn_delay')}</dt><dd>${T('sec', { n: c.maxTickAgeMs / 1000 })}</dd><dt>${T('st_conn_unav')}</dt><dd>${T('sec', { n: c.feedUnavailableMs / 1000 })}</dd></dl><div class="note">${T('st_conn_ro')}</div></div>` +
+      `<div class="card" style="margin-top:var(--gap)"><h3>${T('st_pending')}</h3><ul class="note" style="padding-inline-start:18px"><li>${T('st_p1')}</li><li>${T('st_p2')}</li><li>${T('st_p3')}</li></ul></div>`;
+    const tog = (id, get, set) => { $(id).onclick = () => { set(!get()); save(); $(id).classList.toggle('on', get()); $(id).setAttribute('aria-checked', String(!!get())); chrome(); }; };
+    tog('sToasts', () => P.toasts, v => { P.toasts = v; });
+    tog('sSound', () => P.sound, v => { P.sound = v; if (v) beep('ok'); });
+    tog('sCompact', () => P.compact, v => { P.compact = v; });
+    tog('sMotion', () => P.motion, v => { P.motion = v; });
+    TYPES.forEach(k => tog('sTy-' + k, () => P.types[k], v => { P.types[k] = v; }));
+    $('sLang').onclick = e => { const b = e.target.closest('button[data-v]'); if (b && b.dataset.v !== P.lang) { P.lang = b.dataset.v; save(); sh.querySelectorAll('.page').forEach(x => { x.__h = null; }); go('settings'); } };
+    $('sMode').onclick = e => {
+      const b = e.target.closest('button[data-v]');
+      if (!b) return;
+      const cur = app.vm.dash().asset;
+      if (b.dataset.v === 'manual' && !cur) { $('sModeN').textContent = T('st_manual_need'); return; }
+      const lock = cmd.lockAsset(b.dataset.v === 'manual' ? cur : null);
+      $('sModeN').textContent = lock ? lock : '';
+      $('sMode').querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.v === (lock ? 'manual' : 'follow')));
+    };
+    $('sTf').onchange = e => { if (!cmd.setTf(+e.target.value)) e.target.value = String(app.vm.dash().tf); };
+    $('sMin').oninput = e => { $('sMinV').textContent = cmd.setMinConf(+e.target.value); };
+  }
+
+  // ---------- الشارت ----------
+  let hover = -1, lastChart = null;
+  function drawChart() {
+    const cv = $('cv');
+    if (!cv) return;
+    const C = app.vm.chart(), arr = C.arr, ctx = cv.getContext('2d'), dpr = win.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+    lastChart = C;
+    if (!W) return;
+    if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    if (arr.length < 3) { ctx.fillStyle = '#8e8ea6'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(T('m_wait'), W / 2, H / 2); put('ohlc', ''); return; }
+    let hi = -Infinity, lo = Infinity;
+    arr.forEach(c => { hi = Math.max(hi, c.h); lo = Math.min(lo, c.l); });
+    const pad = (hi - lo) * .08 || 1e-6; hi += pad; lo -= pad;
+    const R = 64, w = W - R, y = v => H - (v - lo) / (hi - lo) * H, cw = w / arr.length;
+    ctx.strokeStyle = '#2a2a3a'; ctx.lineWidth = 1; ctx.fillStyle = '#8e8ea6'; ctx.font = '10.5px sans-serif'; ctx.textAlign = 'left';
+    for (let i = 1; i < 5; i++) { const yy = H * i / 5; ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(w, yy); ctx.stroke(); ctx.fillText(String(+(hi - (hi - lo) * i / 5).toPrecision(7)), w + 6, yy + 3); }
+    arr.forEach((c, i) => {
+      const x = i * cw + cw / 2, up = c.c >= c.o;
+      ctx.strokeStyle = ctx.fillStyle = up ? '#34d399' : '#f87171';
+      ctx.lineWidth = 1.1;
+      ctx.beginPath(); ctx.moveTo(x, y(c.h)); ctx.lineTo(x, y(c.l)); ctx.stroke();
+      ctx.fillRect(x - cw * .32, Math.min(y(c.o), y(c.c)), cw * .64, Math.max(1.5, Math.abs(y(c.o) - y(c.c))));
+    });
+    const cols = ['#8b5cf6', '#22d3ee'];
+    C.lines.forEach((ln, li) => {
+      ctx.strokeStyle = cols[li % 2]; ctx.lineWidth = 1.5; ctx.beginPath();
+      ln.v.forEach((val, i) => { const x = i * cw + cw / 2; if (i) ctx.lineTo(x, y(val)); else ctx.moveTo(x, y(val)); });
+      ctx.stroke();
+    });
+    C.marks.forEach(m => {
+      const x = m.i * cw + cw / 2, yy = y(m.entry);
+      ctx.fillStyle = m.win === null ? '#fbbf24' : m.win ? '#34d399' : '#f87171';
+      ctx.beginPath();
+      if (m.dir === 'call') { ctx.moveTo(x, yy - 9); ctx.lineTo(x - 6, yy + 2); ctx.lineTo(x + 6, yy + 2); } else { ctx.moveTo(x, yy + 9); ctx.lineTo(x - 6, yy - 2); ctx.lineTo(x + 6, yy - 2); }
+      ctx.fill();
+    });
+    const hi2 = hover >= 0 && hover < arr.length ? hover : arr.length - 1, c = arr[hi2];
+    if (hover >= 0 && hover < arr.length) { const x = hover * cw + cw / 2; ctx.strokeStyle = '#ececf455'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); ctx.setLineDash([]); }
+    put('ohlc', new Date(c.t * 1000).toLocaleTimeString('en-GB', { hour12: false }) + ' · ' + T('m_ohlc', { o: c.o, h: c.h, l: c.l, c: c.c }));
+  }
+  function ensureMarket(D) {
+    const el = $('pg-market');
+    if (!$('cv') || el.__lang !== P.lang) {
+      el.__lang = P.lang;
+      el.innerHTML = `<div class="card"><h3 id="mTitle"></h3><div class="note" style="margin:0 0 8px">${T('m_chart_sub')} <span class="pu-t">━ EMA 9</span> <span class="cy-t">━ EMA 21</span></div><canvas id="cv"></canvas><div class="note" id="ohlc" style="direction:ltr;text-align:start"></div></div><div class="card" style="margin-top:var(--gap)" id="mTbl"></div>`;
+      const cv = $('cv');
+      cv.onpointermove = e => { const n = lastChart ? lastChart.arr.length : 0, r = cv.getBoundingClientRect(); hover = n ? Math.min(n - 1, Math.max(0, Math.floor((e.clientX - r.left) / ((r.width - 64) / n)))) : -1; drawChart(); };
+      cv.onpointerleave = () => { hover = -1; drawChart(); };
+      $('mTbl').onclick = e => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        if (b.dataset.lock) cmd.lockAsset(b.dataset.lock); else if (b.dataset.unlock) cmd.lockAsset(null);
+        paint();
+      };
+    }
+    $('mTitle').textContent = T('m_chart', { a: D.asset || '—' }) + ' · ' + tfL(D.tf);
+    put('mTbl', pMarketTable(D));
+    drawChart();
+  }
+
+  // ---------- الرسم ----------
+  function paint() {
+    const D = app.vm.dash();
+    derive(D);
+    const fl = FEED_LVL[D.feed.status] || '', tl = TM_LVL[D.timing.state];
+    pill.className = 'pill ' + fl + (P.min ? ' show' : '');
+    $('pillT').textContent = (D.asset || NAME) + ' · ' + (D.signal && D.signal.d !== 'none' ? dirL(D.signal.d) + ' ' + D.signal.conf : T('tm_' + D.timing.state));
+    if (P.min) return D;
+    $('cFeed').className = 'chip ' + fl; $('cFeed').textContent = T('fs_' + D.feed.status);
+    $('cTm').className = 'chip ' + (tl === 'mute' ? '' : tl); $('cTm').textContent = T('tm_' + D.timing.state);
+    if (P.page === 'dash') put('pg-dash', pDash(D));
+    else if (P.page === 'market') ensureMarket(D);
+    else if (P.page === 'signals') put('pg-signals', pSignals(D));
+    else if (P.page === 'history') put('pg-history', pHistory(D));
+    else if (P.page === 'alerts') { put('pg-alerts', pAlerts()); const b = $('aClr'); if (b) b.onclick = () => { alerts.length = 0; unread = 0; paint(); paintNav(); }; }
+    else if (P.page === 'adv') { put('pg-adv', pAdv(D)); const b = $('advOpen'); if (b) b.onclick = () => { if (opts && opts.openLegacy) opts.openLegacy(); }; }
+    return D;
+  }
+  const safe = () => { try { paint(); } catch (e) { try { win.console.warn('posb paint', e); } catch (_) {} } };
+  const t1 = win.setInterval(safe, 1000);
+  const t2 = win.setInterval(() => { if (!P.min && P.page === 'market') { try { drawChart(); } catch (e) {} } }, 500);
+  go(P.page);
+  setMin(!!P.min);
+  return { paint, host, go, setMin, notify, prefs: () => JSON.parse(JSON.stringify(P)), alerts: () => alerts.map(a => ({ ...a, text: alertText(a) })), backLabel: () => T('adv_back'), stop() { win.clearInterval(t1); win.clearInterval(t2); } };
+}
+module.exports = { buildShell, CSS, NAME, PREF_KEY, PAGES };
+},
 /* ---- ui/ui.js ---- */
 "ui/ui": function (module, exports, require) {
 'use strict';
@@ -3726,14 +4420,18 @@ const HTML = `
 //   app.readShown()   اسم الأصل المعروض في صفحة المنصة (طبقة المنصة)
 //   app.downloadText(name, text, mime) · app.diagnostics() · app.prefs { get(k, d), set(k, v) } تفضيلات العرض فقط
 //   app.win / app.doc النافذة والمستند
-function buildUI(app) {
-  const doc = app.doc, win = app.win;
+// opts.embedded (V1.0): تُعرض هذه الصفحات كقسم «متقدم» داخل الواجهة الجديدة (ui/shell.js): بلا شاشة بداية ولا وميض ولا نافذة مصغّرة،
+// وتُخفى عناصر الصفقات الافتراضية (الكود باقٍ، والعناصر باقية في DOM). زر «تصغير» يصبح «رجوع» ويستدعي opts.onBack.
+const EMB_CSS = '#simCard,#auto,#kill,.splash,.flash,.mini{display:none!important}';
+function buildUI(app, opts) {
+  const doc = app.doc, win = app.win, emb = !!(opts && opts.embedded);
   if (doc.getElementById('wsnf25-host')) return null;
   const host = doc.createElement('div');
   host.id = 'wsnf25-host';
   doc.documentElement.appendChild(host);
   const sh = host.attachShadow({ mode: 'open' });
-  sh.innerHTML = '<style>' + CSS + '</style>' + HTML;
+  sh.innerHTML = '<style>' + CSS + (emb ? EMB_CSS : '') + '</style>' + HTML;
+  if (emb) host.style.display = 'none';
   const $ = id => sh.getElementById(id);
   const ui = app.prefs.get(UI_KEY, { min: false, x: 12, y: 90 });
   const full = $('full'), mini = $('mini'), flash = $('flash'), fbox = $('fbox'), splash = $('splash');
@@ -3744,6 +4442,7 @@ function buildUI(app) {
   win.setTimeout(() => { splash.style.display = 'none'; }, 3900);
 
   const setMin = m => {
+    if (emb) { ui.min = false; if (m && opts.onBack) opts.onBack(); return; }
     ui.min = m; app.prefs.set(UI_KEY, ui);
     full.classList.toggle('hide', m);
     mini.classList.toggle('show', m);
@@ -3845,6 +4544,7 @@ function buildUI(app) {
   };
 
   const showFlash = (cls, main, sub) => {
+    if (emb) return; // التنبيهات تعرضها الواجهة الجديدة
     flash.className = 'flash show ' + cls;
     fbox.style.animation = 'none'; void fbox.offsetWidth; fbox.style.animation = '';
     $('fA').textContent = main; $('fS').textContent = sub;
@@ -4041,6 +4741,7 @@ function buildUI(app) {
     $('mT').textContent = r && d !== 'none' ? 'قوة ' + r.conf : 'انتظار';
   }
   const t1 = win.setInterval(() => { try { paint(); } catch (e) { try { win.console.warn('wsnf paint', e); } catch (_) {} } }, 1000);
+  if (emb) { ui.min = false; splash.style.display = 'none'; $('min').textContent = opts.backLabel || '←'; }
   const t2 = win.setInterval(() => {
     if (ui.min || !sh.querySelector('.p-chart.on')) return;
     try { drawChart(cv, app.vm.chart()); } catch (e) {}

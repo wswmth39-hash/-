@@ -56,6 +56,8 @@ async function session(browser, file, { ui, paintEvery = 0 }) {
 const norm = t => t.replace(/\b\d{1,2}:\d{2}(:\d{2})?\b/g, 'T').replace(/v\d\.\d( \(تطوير\))?/g, 'vX').replace(/\s+/g, ' ').trim();
 async function pageTexts(s, wait) {
   const out = {};
+  // V1.0: الصفحات القديمة صارت تحت «متقدم» ومخفية افتراضيًا؛ نفتحها قبل قراءة نصها (innerText يتأثر بالإخفاء)
+  await s.page.evaluate(() => { const W = window.__WSNF25; if (W && W.showLegacy) W.showLegacy(true); });
   for (const p of PAGES) {
     await s.page.evaluate(p => { const sh = document.getElementById('wsnf25-host').shadowRoot; sh.querySelector('.splash').style.display = 'none'; sh.querySelector('#nav button[data-p="' + p + '"]').click(); }, p);
     await s.page.waitForTimeout(wait);
