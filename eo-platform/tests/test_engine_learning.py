@@ -113,7 +113,7 @@ def test_live_degradation_retires_champion(env):
     from eoplatform.engine.model import DirectionModel
     X = np.random.default_rng(0).normal(size=(300, len(F.FEATURES)))
     mid = reg.register("EURUSD_OTC", 60, DirectionModel.train(X, (X[:, 0] > 0).astype(int)),
-                       {"source": "expertoption", "threshold": 0.0, "calibration": []}, "candidate")
+                       {"source": "expertoption", "threshold": 0.0, "calibration": [], "validated": True}, "candidate")
     reg.promote(mid)
     for i in range(150):
         db.execute("INSERT INTO signals(created_at,market,kind,duration,source,decision,candidate,model_id,status) "

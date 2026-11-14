@@ -243,9 +243,21 @@ def create_app(settings: Settings, start_services: bool = True) -> FastAPI:
 
     @app.post("/api/retrain")
     async def retrain(u=Depends(user)):
-        res = await asyncio.get_running_loop().run_in_executor(core.pool, trainer.retrain_all, core.db,
-                                                               core.registry, settings)
-        return {"results": res}
+        if (core.db.kv_get("research_status") or {}).get("state") == "running":
+            raise HTTPException(409, "a research cycle is already running")
+        from ..learning import research
+
+        async def go():
+            async with core.agent_lock:
+                await asyncio.get_running_loop().run_in_executor(core.pool, research.run_cycle, core)
+        task = asyncio.create_task(go())
+        core._bg.add(task)
+        task.add_done_callback(core._bg.discard)
+        return {"started": True}
+
+    @app.get("/api/research")
+    async def research_state(u=Depends(user)):
+        return {"status": core.db.kv_get("research_status"), "last": core.db.kv_get("research_last")}
 
     # ------------------------------------------------------------------ monitor & settings
     @app.get("/api/monitor")

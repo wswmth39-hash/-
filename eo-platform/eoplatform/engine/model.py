@@ -109,16 +109,25 @@ class DirectionModel:
         self.meta = meta or {}
 
     @staticmethod
-    def train(X: np.ndarray, y: np.ndarray, seed: int = 7) -> "DirectionModel":
-        clf = xgb.XGBClassifier(n_estimators=250, max_depth=3, learning_rate=0.05, subsample=0.8,
-                                colsample_bytree=0.8, min_child_weight=5, reg_lambda=2.0,
-                                eval_metric="logloss", random_state=seed, n_jobs=2, tree_method="hist")
-        clf.fit(X, y)
-        return DirectionModel(clf.get_booster())
+    def train(X: np.ndarray, y: np.ndarray, seed: int = 7, params: dict | None = None,
+              feature_idx: list[int] | None = None) -> "DirectionModel":
+        kw = dict(n_estimators=250, max_depth=3, learning_rate=0.05, subsample=0.8, colsample_bytree=0.8,
+                  min_child_weight=5, reg_lambda=2.0)
+        kw.update(params or {})
+        clf = xgb.XGBClassifier(**kw, eval_metric="logloss", random_state=seed, n_jobs=2, tree_method="hist")
+        clf.fit(X if feature_idx is None else X[:, feature_idx], y)
+        m = DirectionModel(clf.get_booster())
+        m.feature_idx = feature_idx
+        return m
+
+    feature_idx: list[int] | None = None
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        d = xgb.DMatrix(np.atleast_2d(X), feature_names=None)
-        return self.booster.predict(d)
+        X = np.atleast_2d(X)
+        idx = self.feature_idx if self.feature_idx is not None else self.meta.get("feature_idx")
+        if idx is not None:
+            X = X[:, idx]
+        return self.booster.predict(xgb.DMatrix(X, feature_names=None))
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,7 +188,14 @@ class Registry:
         return mid
 
     def promote(self, model_id: int) -> None:
-        row = self.db.one("SELECT market,duration FROM models WHERE id=?", (model_id,))
+        """Make a model the champion. Refuses anything that did not pass every validation gate:
+        an untested or failed model can never become active (tests/test_research.py)."""
+        row = self.db.one("SELECT market,duration,metrics FROM models WHERE id=?", (model_id,))
+        if row is None:
+            raise KeyError(model_id)
+        meta = json.loads(row["metrics"] or "{}")
+        if not meta.get("validated") or meta.get("threshold") is None:
+            raise ValueError(f"model {model_id} is not validated; refusing to promote")
         self.db.execute("UPDATE models SET status='retired' WHERE market=? AND duration=? AND status='champion'",
                         (row["market"], row["duration"]))
         self.db.execute("UPDATE models SET status='champion', promoted_at=? WHERE id=?", (time.time(), model_id))

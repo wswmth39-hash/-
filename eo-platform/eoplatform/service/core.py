@@ -264,7 +264,9 @@ class Core:
         while True:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(self.pool, trainer.check_live_degradation, self.db, self.registry, self.s)
-            await loop.run_in_executor(self.pool, trainer.retrain_all, self.db, self.registry, self.s)
+            from ..learning import research
+            async with self.agent_lock:   # the cycle may consult Qwen; never overlap with an agent run
+                await loop.run_in_executor(self.pool, research.run_cycle, self)
             await asyncio.sleep(self.s.retrain_interval_min * 60)
 
     async def svc_maintenance(self) -> None:
