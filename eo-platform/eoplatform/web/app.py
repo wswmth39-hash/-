@@ -279,6 +279,11 @@ def create_app(settings: Settings, start_services: bool = True) -> FastAPI:
         return core.health()
 
     # ------------------------------------------------------------------ AUTO mode & execution
+    @app.get("/api/metrics")
+    async def metrics(window: float | None = None, u=Depends(user)):
+        from ..engine import features as F_
+        return {**core.metrics.summary(window), "feature_cache": dict(F_.CACHE_STATS)}
+
     @app.get("/api/auto/board")
     async def auto_board(u=Depends(user)):
         return core.auto.board

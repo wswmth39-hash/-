@@ -6,6 +6,10 @@ candles are appended.
 """
 from __future__ import annotations
 
+import hashlib
+import threading
+from collections import OrderedDict
+
 import numpy as np
 import pandas as pd
 from ta.momentum import RSIIndicator, ROCIndicator, StochasticOscillator
@@ -27,7 +31,15 @@ FEATURES = [
     "dist_hi20", "dist_lo20", "breakout", "hh_hl",
     # liquidity
     "sweep", "equal_levels", "activity", "activity_ratio",
+    # market structure / multi-timeframe (engine/structure.py)
+    "fvg_net10", "fvg_into", "structure", "bos", "choch", "htf_trend", "htf_rsi", "mtf_align",
 ]
+LIVE_CANDLES = 240   # live analysis window (HTF EMA needs ~40 closed 6x candles to match training)
+
+
+def infer_period(c: np.ndarray) -> int:
+    d = np.diff(c[:, 0])
+    return int(np.median(d)) if len(d) else 1
 
 
 def candles_df(c: np.ndarray) -> pd.DataFrame:
@@ -35,7 +47,15 @@ def candles_df(c: np.ndarray) -> pd.DataFrame:
 
 
 def compute(c: np.ndarray) -> pd.DataFrame:
-    """c: candles [[ts,o,h,l,c,n],...] -> DataFrame of FEATURES aligned with c."""
+    """c: candles [[ts,o,h,l,c,n],...] -> DataFrame of FEATURES aligned with c.
+    Uses the NumPy implementation (features_np, ~7-10× faster); compute_pandas() below is the
+    reference it is tested against (max |difference| 3e-7 on 24 h of real data)."""
+    from .features_np import compute_np
+    return compute_np(c)
+
+
+def compute_pandas(c: np.ndarray) -> pd.DataFrame:
+    """Reference implementation (pandas + ta). Used by tests to validate compute_np."""
     df = candles_df(c)
     o, h, l, cl, n = df.open, df.high, df.low, df.close, df.n
     eps = 1e-12
@@ -68,8 +88,9 @@ def compute(c: np.ndarray) -> pd.DataFrame:
 
     f["atr_rel"] = atr / cl * 1e4
     bb = BollingerBands(cl, 20, 2)
-    f["bb_pctb"] = bb.bollinger_pband() - 0.5
     f["bb_width"] = bb.bollinger_wband()
+    flat = (cl.rolling(20).max() - cl.rolling(20).min()) == 0
+    f["bb_pctb"] = (bb.bollinger_pband() - 0.5).where(~flat)   # flat closes: %b undefined
     f["atr_ratio"] = atr / atr.rolling(50, min_periods=14).mean()
 
     rng = (h - l).replace(0, eps)
@@ -108,7 +129,35 @@ def compute(c: np.ndarray) -> pd.DataFrame:
     f["equal_levels"] = eq_hi.astype(float) - eq_lo.astype(float)
     f["activity"] = n
     f["activity_ratio"] = n / n.rolling(30, min_periods=5).mean()
+    from .structure import structure_features
+    for k, v in structure_features(np.asarray(c, float), atr.to_numpy(), infer_period(c)).items():
+        f[k] = v
     return f[FEATURES].replace([np.inf, -np.inf], np.nan)
+
+
+_CACHE: "OrderedDict[bytes, pd.DataFrame]" = OrderedDict()
+_CACHE_MAX = 512
+CACHE_STATS = {"hits": 0, "misses": 0}
+_cache_lock = threading.Lock()
+
+
+def compute_cached(c: np.ndarray) -> pd.DataFrame:
+    """compute() memoised on the exact candle bytes: identical inputs → identical outputs,
+    and any change to any candle (new candle, late correction) changes the key."""
+    key = hashlib.blake2b(np.ascontiguousarray(c).tobytes(), digest_size=16).digest()
+    with _cache_lock:
+        hit = _CACHE.get(key)
+        if hit is not None:
+            _CACHE.move_to_end(key)
+            CACHE_STATS["hits"] += 1
+            return hit
+    f = compute(c)
+    with _cache_lock:
+        CACHE_STATS["misses"] += 1
+        _CACHE[key] = f
+        while len(_CACHE) > _CACHE_MAX:
+            _CACHE.popitem(last=False)
+    return f
 
 
 def contiguous(c: np.ndarray, period: int) -> np.ndarray:

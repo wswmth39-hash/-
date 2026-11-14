@@ -39,7 +39,10 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
         "entry_price": None, "entry_ts": None, "analysis_period": P,
     }
 
+    ctx: dict = {}
+
     def done():
+        classify(sig, ctx, settings)
         sig["latency_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         return sig
 
@@ -54,7 +57,7 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
     if src != "expertoption":
         sig["warnings"].append("مصدر البيانات مرجعي وليس سعر ExpertOption نفسه؛ قد يختلف السعر قليلًا")
 
-    bars = hub.bars(market["id"], src, seconds=(F.MIN_CANDLES + 80) * P, include_current=False)
+    bars = hub.bars(market["id"], src, seconds=F.LIVE_CANDLES * P, include_current=False)
     c = resample(bars, P)
     if len(c) and c[-1, 0] + P > (bars[-1, 0] + 1 if len(bars) else 0):
         c = c[:-1]  # drop the still-forming candle
@@ -64,7 +67,7 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
             sig["reasons"].append(f"حالة البيانات: {STATE_AR[state]}")
         return done()
 
-    feats = F.compute(c)
+    feats = F.compute_cached(c)
     row = feats.iloc[-1].to_dict()
     news_events = news_status = None
     if news is not None:
@@ -75,7 +78,11 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
                     news_status=news_status if news is not None else {"ok": False}, now=now)
     sig["evidence"] = ev
     q = hub.quality.get(market["id"], {})
-    sig["quality"] = {k: v for k, v in q.items()}
+    sig["data_quality"] = {k: v for k, v in q.items()}
+    from .structure import REGIME_AR, regime
+    reg = regime(row)
+    sig["regime"], sig["regime_ar"] = reg, REGIME_AR[reg]
+    ctx.update(row=row, ev=ev, regime=reg)
     sig["trend"] = ev["trend"]["label"]
     score = A.ensemble(ev)
     sig["ensemble_score"] = round(score, 3)
@@ -110,14 +117,21 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
         return done()
     if ev["liquidity"].get("abnormal"):
         sig["reasons"].insert(0, "ظروف تقلب/سيولة غير طبيعية — انتظار")
+        ctx["blocked"] = "volatility"
+        return done()
+    if reg == "quiet":
+        sig["reasons"].insert(0, "السوق هادئ جدًا (تقلب أقل من 40% من المعتاد) — احتمال التعادل مرتفع، انتظار")
+        ctx["blocked"] = "quiet"
         return done()
     if q.get(f"frozen_{src}"):
         sig["reasons"].insert(0, "السعر مجمّد (لم يتغير منذ دقيقتين) — بيانات مشكوك فيها، انتظار")
+        ctx["unreliable"] = True
         return done()
     if q.get("mismatch"):
         sig["warnings"].append(f"عدم تطابق بين سعر ExpertOption والمرجع ({q.get('mismatch_median_pct')}%)")
     if ev.get("news", {}).get("high_impact_soon"):
         sig["reasons"].insert(0, "خبر اقتصادي عالي التأثير قريب من وقت الصفقة — انتظار")
+        ctx["blocked"] = "news"
         return done()
 
     if champ is None:
@@ -137,8 +151,17 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
         sig["confidence_detail"] = {"oos_accuracy": conf["acc"], "oos_samples": conf["n"],
                                     "wilson_lb": conf["wilson_lb"], "breakeven": settings.breakeven,
                                     "model_trained_at": mrow["created_at"]}
+    ctx.update(thr=thr, p_up=p_up)
     if thr is None:
         sig["reasons"].insert(0, "النموذج الحالي لم يحقق دقة أعلى من نقطة التعادل خارج العينة — انتظار")
+        return done()
+    # Dynamic threshold: regimes where this model's held-out accuracy at its threshold fell below
+    # break-even (measured in training, enough samples) are blocked for this model.
+    rb = (meta.get("regime_stats") or {}).get(reg)
+    if rb and rb.get("blocked"):
+        sig["reasons"].insert(0, f"النموذج غير مربح تاريخيًا في حالة «{REGIME_AR[reg]}» "
+                                 f"(دقة {rb['acc']*100:.1f}% على {rb['n']} صفقة خارج العينة) — انتظار")
+        ctx["blocked"] = "regime"
         return done()
     if abs(p_up - 0.5) < thr:
         sig["reasons"].insert(0, f"قوة التوقع {abs(p_up-0.5):.3f} أقل من العتبة المُتحقق منها {thr:.3f}")
@@ -146,3 +169,49 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
     sig["decision"] = sig["candidate"]
     sig["validated"] = True
     return done()
+
+
+CLASS_AR = {"STRONG_BUY": "شراء قوي", "STRONG_SELL": "بيع قوي", "BUY": "شراء", "SELL": "بيع",
+            "WEAK": "فرصة ضعيفة", "CONFLICT": "إشارات متعارضة", "BLOCKED": "محجوبة بفلتر",
+            "UNRELIABLE_DATA": "بيانات غير موثوقة", "NO_DATA": "لا بيانات"}
+
+
+def classify(sig: dict, ctx: dict, settings) -> None:
+    """Signal class + quality score (0–100).
+
+    The quality score is a transparent heuristic, NOT a probability and NOT validated: it never
+    overrides the validated model decision. It is stored with every signal so the learning system
+    can measure whether higher quality actually means better outcomes (Performance page)."""
+    ev, row = ctx.get("ev"), ctx.get("row")
+    if sig["data_state"] == "OFFLINE" and not ev:
+        sig["signal_class"], sig["quality_score"] = "NO_DATA", 0
+    elif ctx.get("unreliable") or sig["data_state"] != "LIVE" or not ev:
+        sig["signal_class"], sig["quality_score"] = "UNRELIABLE_DATA", 0
+    else:
+        d = 1 if sig["candidate"] == "BUY" else -1 if sig["candidate"] == "SELL" else 0
+        directional = [e for k, e in ev.items() if k != "news" and abs(e["score"]) > 0.05]
+        agree = sum(1 for e in directional if e["score"] * d > 0)
+        oppose = sum(1 for e in directional if e["score"] * d < 0)
+        frac = agree / len(directional) if directional else 0.5
+        p_up, thr = ctx.get("p_up"), ctx.get("thr")
+        model = 40 * min(1.0, abs(p_up - 0.5) / (2 * thr)) if (p_up is not None and thr) else 0.0
+        mtf = (row or {}).get("mtf_align") or 0
+        mtf_pts = 15 if mtf == d and d else 7 if mtf == 0 else 0
+        reg = ctx.get("regime")
+        reg_pts = 15 if (reg == "trend_up" and d > 0) or (reg == "trend_down" and d < 0) else 10 if reg == "range" else 3
+        age = sig.get("data_age") or 0
+        data_pts = 10 if age <= 1 else 6 if age <= settings.live_max_age else 0
+        score = round(model + 20 * frac + mtf_pts + reg_pts + data_pts)
+        sig["quality_score"] = int(max(0, min(100, score)))
+        sig["quality_parts"] = {"model": round(model, 1), "agreement": round(20 * frac, 1), "mtf": mtf_pts,
+                                "regime": reg_pts, "data": data_pts, "agree": agree, "oppose": oppose}
+        if ctx.get("blocked"):
+            cls = "BLOCKED"
+        elif sig["decision"] in ("BUY", "SELL"):
+            cls = ("STRONG_" if sig["quality_score"] >= 70 else "") + sig["decision"]
+        elif oppose >= 3 and agree >= 3 or (mtf and d and mtf == -d):
+            cls = "CONFLICT"
+        else:
+            cls = "WEAK"
+        sig["signal_class"] = cls
+    sig["signal_class_ar"] = CLASS_AR[sig["signal_class"]]

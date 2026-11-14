@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import itertools
 import logging
 import math
 import threading
@@ -59,6 +60,8 @@ class DataHub:
         self.last_data_at: dict[str, float] = {}     # source -> wall time of last accepted LIVE update
         self.quality: dict[str, dict] = {}           # market -> {frozen, mismatch, ...}
         self._loaded: set[tuple[str, str]] = set()
+        # listeners(market, source, bar_ts, rx_time) called when a LIVE 1-second bar is closed
+        self.listeners: list = []
         self.frozen_after = 120        # identical OHLC for this many consecutive live seconds → frozen
         self.mismatch_pct = 0.3        # median |ExpertOption − reference| above this % → mismatch
 
@@ -202,6 +205,8 @@ class DataHub:
                 s.last_rx = now
                 s.clock_offset = now - s.last_ts
                 self.last_data_at[source] = now
+                if not live_fill:
+                    self._notify(market, source, new[-1][0], now)
             s.accepted += acc
         return {"accepted": acc, "rejected": len(bars) - acc}
 
@@ -210,6 +215,14 @@ class DataHub:
         s.bars.append(b)
         s.pending.append(b)
         s.cur = None
+        self._notify(s.market, s.source, b[0], s.last_rx)
+
+    def _notify(self, market: str, source: str, bar_ts: int, rx: float) -> None:
+        for fn in list(self.listeners):
+            try:
+                fn(market, source, bar_ts, rx)
+            except Exception:
+                log.exception("bar listener failed")
 
     # ------------------------------------------------------------------ maintenance
     def tick(self, now: float | None = None) -> None:
@@ -320,7 +333,10 @@ class DataHub:
             s = self.series.get((market, source))
             if s is None:
                 s = self._series(market, source)
-            rows = list(s.bars)
+            # Timestamps are unique and increasing, so every bar inside the window is among the
+            # last ``seconds`` entries: copy only that tail (was: the whole 6-hour deque, ~5 ms).
+            k = min(len(s.bars), int(seconds) + 1)
+            rows = list(itertools.islice(reversed(s.bars), k))[::-1]
             if include_current and s.cur is not None:
                 rows.append(tuple(s.cur))
         if not rows:
@@ -348,11 +364,13 @@ def resample(bars: np.ndarray, period: int) -> np.ndarray:
     if bars.size == 0:
         return np.empty((0, 6))
     keys = (bars[:, 0] // period).astype(np.int64)
-    out = []
-    start = 0
-    for i in range(1, len(keys) + 1):
-        if i == len(keys) or keys[i] != keys[start]:
-            seg = bars[start:i]
-            out.append((keys[start] * period, seg[0, 1], seg[:, 2].max(), seg[:, 3].min(), seg[-1, 4], len(seg)))
-            start = i
-    return np.asarray(out, dtype=float)
+    starts = np.flatnonzero(np.concatenate(([True], keys[1:] != keys[:-1])))   # vectorised (was a Python loop)
+    ends = np.concatenate((starts[1:], [len(keys)])) - 1
+    out = np.empty((len(starts), 6))
+    out[:, 0] = keys[starts] * period
+    out[:, 1] = bars[starts, 1]
+    out[:, 2] = np.maximum.reduceat(bars[:, 2], starts)
+    out[:, 3] = np.minimum.reduceat(bars[:, 3], starts)
+    out[:, 4] = bars[ends, 4]
+    out[:, 5] = ends - starts + 1
+    return out

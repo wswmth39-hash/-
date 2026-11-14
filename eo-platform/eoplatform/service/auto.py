@@ -26,32 +26,119 @@ from ..markets import list_markets
 log = logging.getLogger("eo.auto")
 
 
+COLLECT_S = 0.15   # wait for the other symbols' bars of the same second (tuned from measured spread)
+
+
 class AutoScanner:
     def __init__(self, core):
         self.core = core
         self.board: dict = {"at": None, "rows": [], "chosen": None, "why": "لم يبدأ المسح بعد"}
+        self._loop = None
+        self._pending: dict[int, dict] = {}   # candle-end second -> bucket
+        self._tasks: set = set()
 
+    # ------------------------------------------------------------------ event path
+    def _due(self, end: int, cfg: dict) -> list[int]:
+        return [d for d in cfg["durations"] if end % ANALYSIS_PERIOD[d] == 0]
+
+    def on_bar(self, market: str, source: str, bar_ts: int, rx: float) -> None:
+        """Hub listener (event loop). Each market is analysed the moment ITS bar arrives; the
+        cross-market ranking runs as soon as every live market has reported (or at the deadline)."""
+        if self._loop is None or self._loop.is_closed():
+            return
+        end = int(bar_ts) + 1
+        cfg = self.core.execution.config()
+        if not self._due(end, cfg):
+            return                       # no analysis candle closes at this second
+        b = self._pending.get(end)
+        if b is None:
+            live = {m["id"] for m in list_markets(self.core.db, enabled_only=True)
+                    if (not cfg["markets"] or m["id"] in cfg["markets"]) and self.core.hub.best_source(m)[1] == "LIVE"}
+            b = self._pending[end] = {"rows": [], "done": set(), "started": set(), "expected": live,
+                                      "first_rx": rx, "ranked": False, "cfg": cfg}
+            self._loop.call_later(COLLECT_S, lambda e=end: self._spawn(self._rank(e)))
+        if market in b["started"]:
+            return
+        b["started"].add(market)
+        self._spawn(self._handle(end, market, rx))
+
+    def _spawn(self, coro) -> None:
+        if self._loop is None:              # stopped: drop the event cleanly
+            coro.close()
+            return
+        t = self._loop.create_task(coro)
+        self._tasks.add(t)
+        t.add_done_callback(self._tasks.discard)
+
+    async def _handle(self, end: int, market: str, rx: float) -> None:
+        b = self._pending.get(end)
+        if b is None:
+            return
+        pairs = [(market, d) for d in self._due(end, b["cfg"])]
+        try:
+            rows = await asyncio.get_running_loop().run_in_executor(
+                self.core.signal_pool, self._analyze_pairs, pairs, time.time(), b["cfg"])
+        except Exception:
+            log.exception("analysis failed for %s", market)
+            rows = []
+        self.core.metrics.observe("data_to_signal_ms", (time.time() - rx) * 1000)
+        b["rows"].extend(rows)
+        b["done"].add(market)
+        if b["expected"] and b["expected"] <= b["done"]:
+            await self._rank(end)
+
+    async def _rank(self, end: int) -> None:
+        b = self._pending.get(end)
+        if b is None or b["ranked"]:
+            return
+        b["ranked"] = True
+        self._pending.pop(end, None)
+        cfg = b["cfg"]
+        try:
+            await asyncio.get_running_loop().run_in_executor(
+                self.core.pool, self._choose, b["rows"], time.time(), cfg, cfg["auto_enabled"], None)
+        except Exception:
+            log.exception("ranking failed")
+        now = time.time()
+        self.core.metrics.observe("auto_decision_ms", (now - b["first_rx"]) * 1000)
+        self.core.metrics.observe("candle_close_to_decision_ms", (now - end) * 1000)
+
+    # ------------------------------------------------------------------ clock path (tests / fallback)
     def scan_once(self, now: float | None = None) -> dict:
-        c = self.core
         now = now or time.time()
-        cfg = c.execution.config()
+        cfg = self.core.execution.config()
         sec = int(now)
+        pairs = [(m["id"], d) for m in list_markets(self.core.db, enabled_only=True) for d in cfg["durations"]
+                 if sec % ANALYSIS_PERIOD[d] <= 1]
+        t = time.perf_counter()
+        rows = self._analyze_pairs(pairs, now, cfg)
+        return self._choose(rows, now, cfg, True, t)
+
+    def _analyze_pairs(self, pairs: list, now: float, cfg: dict) -> list[dict]:
+        c = self.core
         rows = []
-        for m in list_markets(c.db, enabled_only=True):
-            if cfg["markets"] and m["id"] not in cfg["markets"]:
+        markets = {m["id"]: m for m in list_markets(c.db, enabled_only=True)}
+        for mid, d in pairs:
+            m = markets.get(mid)
+            if m is None or (cfg["markets"] and mid not in cfg["markets"]):
                 continue
             src, state = c.hub.best_source(m, now)
             if src is None or state != "LIVE":
                 continue
-            for d in cfg["durations"]:
-                P = ANALYSIS_PERIOD[d]
-                if sec % P > 1:     # only right after this duration's candle closed
-                    continue
-                sig = analyze(m, d, c.hub, c.registry, c.s, now=now, news=c.news)
-                cd = sig.get("confidence_detail") or {}
-                lb = cd.get("wilson_lb")
-                edge = (lb * (1 + c.s.payout) - 1) if (lb is not None and sig["validated"]) else None
-                rows.append({"sig": sig, "edge": edge})
+            t0 = time.perf_counter()
+            sig = analyze(m, d, c.hub, c.registry, c.s, now=now, news=c.news)
+            c.metrics.observe("fast_analysis_ms", (time.perf_counter() - t0) * 1000)
+            c.metrics.inc(f"decision_{sig['decision']}")
+            if sig.get("signal_class"):
+                c.metrics.inc(f"class_{sig['signal_class']}")
+            cd = sig.get("confidence_detail") or {}
+            lb = cd.get("wilson_lb")
+            edge = (lb * (1 + c.s.payout) - 1) if (lb is not None and sig["validated"]) else None
+            rows.append({"sig": sig, "edge": edge})
+        return rows
+
+    def _choose(self, rows: list, now: float, cfg: dict, execute: bool, t_scan: float | None) -> dict:
+        c = self.core
         qualified = [r for r in rows if r["sig"]["decision"] in ("BUY", "SELL") and r["edge"] is not None
                      and r["edge"] > cfg["min_edge"]]
         qualified.sort(key=lambda r: r["edge"], reverse=True)
@@ -61,12 +148,20 @@ class AutoScanner:
                        "confidence": r["sig"]["confidence"], "edge_lb": r["edge"],
                        "data_source": r["sig"]["data_source"], "why": (r["sig"]["reasons"] or [""])[0]}
                       for r in sorted(rows, key=lambda r: (r["edge"] is None, -(r["edge"] or 0)))]
-        result = {"at": now, "rows": board_rows, "evaluated": len(rows), "chosen": None}
+        result = {"at": now, "rows": board_rows, "evaluated": len(rows), "chosen": None,
+                  "auto_enabled": cfg["auto_enabled"]}
+        if t_scan is not None:
+            result["scan_ms"] = round((time.perf_counter() - t_scan) * 1000, 2)
         if not rows:
             result["why"] = "لا توجد أسواق ببيانات حية الآن، أو لم تُغلق شمعة تحليل في هذه الثانية"
         elif not qualified:
             result["why"] = (f"امتناع: لا توجد فرصة مُتحقق منها من بين {len(rows)} تقييمًا "
                              "(لا نموذج يتجاوز نقطة التعادل بثقة كافية، أو موانع مخاطر)")
+        elif not execute:
+            best = qualified[0]["sig"]
+            result["why"] = (f"أفضل فرصة الآن: {best['market_name_ar']} {best['decision']} {best['duration']} ث "
+                             "(وضع AUTO متوقف — لا تنفيذ)")
+            result["best"] = {k: best.get(k) for k in ("market", "duration", "decision", "confidence")}
         else:
             best = qualified[0]
             sig = best["sig"]
@@ -86,13 +181,17 @@ class AutoScanner:
         return result
 
     async def run(self) -> None:
-        while True:
-            now = time.time()
-            await asyncio.sleep(5 - now % 5 + 0.4)  # just after each 5-second candle boundary
-            if not self.core.execution.config()["auto_enabled"]:
-                self.board = {**self.board, "why": "وضع AUTO متوقف", "at": time.time()}
-                continue
-            try:
-                await asyncio.get_running_loop().run_in_executor(self.core.pool, self.scan_once)
-            except Exception:
-                log.exception("auto scan failed")
+        """Event-driven: scans are triggered by hub bar-close events (see on_bar). This loop only
+        registers the listener and keeps the service supervised."""
+        self._loop = asyncio.get_running_loop()
+        if self.on_bar not in self.core.hub.listeners:
+            self.core.hub.listeners.append(self.on_bar)
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        finally:
+            if self.on_bar in self.core.hub.listeners:
+                self.core.hub.listeners.remove(self.on_bar)
+            self._loop = None
+            for t in list(self._tasks):
+                t.cancel()

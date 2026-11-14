@@ -51,7 +51,8 @@ def _resolve(db: DB, s: dict) -> tuple[str, float | None, str | None]:
 
 def record_signal(db: DB, sig: dict, trigger: str = "manual") -> int:
     payload = {k: sig.get(k) for k in ("evidence", "features", "ensemble_score", "confidence_detail",
-                                       "warnings", "latency_ms", "analysis_period", "agents")}
+                                       "warnings", "latency_ms", "analysis_period", "agents", "signal_class",
+                                       "quality_score", "quality_parts", "regime", "auto_choice")}
     cur = db.execute(
         "INSERT INTO signals(created_at,market,kind,duration,source,decision,candidate,prob,confidence,validated,"
         "model_id,entry_ts,entry_price,data_source,data_age,data_state,trend,reasons,payload,trigger) "

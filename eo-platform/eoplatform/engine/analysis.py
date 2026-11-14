@@ -62,7 +62,13 @@ def trend(r: dict) -> dict:
              f"ميل EMA21 {slope:+.2f} ATR/5 شموع", f"ADX={adx*100:.0f} اتجاه {strength}"]
     if adx <= 0.2:
         s *= 0.5
-    return {"score": s, "facts": facts, "label": label, "adx": adx}
+    mtf = _v(r, "mtf_align")
+    if r.get("htf_trend") is not None and r.get("htf_trend") == r.get("htf_trend"):
+        htf = _v(r, "htf_trend")
+        facts.append(f"الإطار الأعلى (6×) {'صاعد' if htf > 0 else 'هابط' if htf < 0 else 'مستوٍ'}"
+                     + (" — متوافق مع الإطار الحالي" if mtf != 0 else " — غير متوافق"))
+        s = _clip(s + 0.15 * mtf)
+    return {"score": s, "facts": facts, "label": label, "adx": adx, "mtf_align": mtf}
 
 
 def candles(r: dict) -> dict:
@@ -103,6 +109,24 @@ def price_action(r: dict) -> dict:
     hh = _v(r, "hh_hl")
     if abs(hh) >= 2:
         facts.append("قمم وقيعان صاعدة" if hh > 0 else "قمم وقيعان هابطة"); s += 0.1 * hh
+    if _v(r, "choch") > 0:
+        facts.append("تغيّر طابع السوق إلى صاعد (CHoCH)"); s += 0.3
+    elif _v(r, "choch") < 0:
+        facts.append("تغيّر طابع السوق إلى هابط (CHoCH)"); s -= 0.3
+    elif _v(r, "bos") > 0:
+        facts.append("كسر هيكل صاعد (BOS)"); s += 0.2
+    elif _v(r, "bos") < 0:
+        facts.append("كسر هيكل هابط (BOS)"); s -= 0.2
+    st = _v(r, "structure")
+    if st:
+        facts.append(f"الهيكل الحالي {'صاعد' if st > 0 else 'هابط'}")
+    fi, fn = _v(r, "fvg_into"), _v(r, "fvg_net10")
+    if fi > 0:
+        facts.append("إعادة اختبار فجوة قيمة عادلة صاعدة (FVG)"); s += 0.2
+    elif fi < 0:
+        facts.append("إعادة اختبار فجوة قيمة عادلة هابطة (FVG)"); s -= 0.2
+    elif fn:
+        facts.append(f"صافي فجوات القيمة العادلة في آخر 10 شموع {fn:+.0f}")
     return {"score": _clip(s), "facts": facts}
 
 

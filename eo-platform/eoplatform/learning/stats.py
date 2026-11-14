@@ -48,7 +48,34 @@ def performance(db: DB, breakeven: float, since: float = 0) -> dict:
     out["by_source"] = [{"engine": k, "signals": _summ([r for r in v if r["decision"] != "WAIT"]),
                          "candidates": _summ(v)} for k, v in sorted(sg.items())]
     out["failure_patterns"] = failure_patterns(rows)
+    out["by_quality"], out["by_class"], out["by_regime"] = _by_payload(rows, min_n=30)
     return out
+
+
+def _by_payload(rows: list[dict], min_n: int) -> tuple[list, list, list]:
+    """Outcome accuracy by quality bucket / signal class / regime. A group is 'verified' only
+    with >= min_n resolved outcomes; smaller groups are flagged experimental."""
+    q, c, r = defaultdict(list), defaultdict(list), defaultdict(list)
+    for row in rows:
+        try:
+            p = json.loads(row["payload"] or "{}")
+        except ValueError:
+            continue
+        if p.get("quality_score") is not None:
+            b = int(p["quality_score"]) // 20 * 20
+            q[f"{b}-{b + 19}"].append(row)
+        if p.get("signal_class"):
+            c[p["signal_class"]].append(row)
+        if p.get("regime"):
+            r[p["regime"]].append(row)
+
+    def table(d):
+        out = []
+        for k, rs in sorted(d.items()):
+            s = _summ(rs)
+            out.append({"group": k, **s, "verified": s["n"] >= min_n})
+        return out
+    return table(q), table(c), table(r)
 
 
 def failure_patterns(rows: list[dict], min_n: int = 30) -> list[dict]:
