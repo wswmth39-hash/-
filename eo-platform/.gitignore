@@ -1,0 +1,10 @@
+.env
+*.db
+*.db-wal
+*.db-shm
+var/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+models/
+logs/

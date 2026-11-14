@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>منصة تحليل ExpertOption</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">منصة التحليل الذكي <small>ExpertOption · محاكاة فقط</small></div>
+  <div class="pills">
+    <span class="pill" id="pill-svc"><span class="dot"></span><span>الخدمات</span></span>
+    <span class="pill optional" id="pill-bridge"><span class="dot"></span><span>جسر ExpertOption</span></span>
+    <span class="pill optional" id="pill-ref"><span class="dot"></span><span>Binance مرجعي</span></span>
+    <span class="pill optional" id="pill-llm"><span class="dot"></span><span>النموذج المحلي</span></span>
+    <button class="btn ghost" id="theme" title="الوضع الفاتح/الداكن">◐</button>
+    <button class="btn ghost" id="logout">خروج</button>
+  </div>
+</header>
+<div class="layout">
+  <nav class="side" id="nav">
+    <button data-view="dash" class="active">لوحة التداول</button>
+    <button data-view="signals">سجل الإشارات</button>
+    <button data-view="agents">نشاط الوكلاء</button>
+    <button data-view="perf">الأداء والنماذج</button>
+    <button data-view="monitor">المراقبة التلقائية</button>
+    <button data-view="status">الاتصال والحالة</button>
+    <button data-view="settings">الإعدادات</button>
+  </nav>
+  <main>
+    <!-- DASHBOARD -->
+    <section class="view active" id="v-dash">
+      <div class="grid g2">
+        <div class="card">
+          <h2>تحليل فوري</h2>
+          <div class="row">
+            <div class="seg" id="kind-seg"><button data-kind="regular" class="on">السوق العادي</button><button data-kind="otc">OTC</button></div>
+            <select id="market" aria-label="السوق"></select>
+          </div>
+          <div class="row">
+            <span class="muted small">مدة الصفقة:</span>
+            <div class="seg" id="dur-seg">
+              <button data-d="30">30 ث</button><button data-d="60" class="on">1 د</button><button data-d="120">2 د</button><button data-d="300">5 د</button>
+            </div>
+            <label class="small"><input type="checkbox" id="deep" checked> تشغيل فريق الوكلاء بعد الإشارة</label>
+          </div>
+          <div id="mkt-state" class="small muted"></div>
+          <p></p>
+          <button class="btn big" id="analyze">⚡ حلّل الآن</button>
+          <div class="disclaimer">التحليل لا يضمن أي ربح. الثقة المعروضة هي دقة النموذج المقاسة على بيانات لم يتدرب عليها، وتظهر فقط حين تتوفر عينة كافية.
+          نقطة التعادل بعائد <span id="payout"></span>: <b id="breakeven"></b>.</div>
+        </div>
+        <div class="card" id="result">
+          <h2>النتيجة</h2>
+          <div class="decision" id="r-decision">—</div>
+          <div id="r-body" class="muted small">اختر السوق والمدة ثم اضغط «حلّل الآن».</div>
+        </div>
+      </div>
+      <div class="grid g2" >
+        <div class="card">
+          <div class="row"><h2>الرسم البياني</h2><span class="muted small" id="chart-src"></span>
+            <div class="seg" id="per-seg"><button data-p="5">5ث</button><button data-p="10" class="on">10ث</button><button data-p="60">1د</button></div></div>
+          <canvas id="chart" width="900" height="280" aria-label="شموع السعر"></canvas>
+        </div>
+        <div class="card">
+          <h2>الأسواق المباشرة</h2>
+          <div class="tablewrap"><table id="mkt-table"><thead><tr><th>السوق</th><th>النوع</th><th>المصدر</th><th>الحالة</th><th>آخر سعر</th><th>العمر</th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </div>
+      <div class="card"><h2>آخر الإشارات</h2><div class="tablewrap"><table id="recent"><thead></thead><tbody></tbody></table></div></div>
+    </section>
+
+    <!-- SIGNALS -->
+    <section class="view" id="v-signals">
+      <div class="card">
+        <div class="row"><h2>سجل الإشارات</h2>
+          <select id="sig-source"><option value="">كل المحركات</option><option value="fast">المحرك السريع</option><option value="agents">فريق الوكلاء</option></select>
+          <button class="btn ghost" id="sig-more">تحميل المزيد</button></div>
+        <div class="tablewrap"><table id="sig-table"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- AGENTS -->
+    <section class="view" id="v-agents">
+      <div class="card"><h2>حالة النموذج اللغوي المحلي</h2><div id="llm-state" class="small"></div></div>
+      <div class="card"><h2>آخر تشغيلات فريق الوكلاء</h2><div class="tablewrap"><table id="runs"><thead><tr><th>#</th><th>السوق</th><th>المدة</th><th>القرار</th><th>نموذج لغوي</th><th>المدة (ث)</th><th>الوقت</th></tr></thead><tbody></tbody></table></div></div>
+      <div class="card"><h2>تفاصيل التشغيل</h2><div id="run-detail" class="muted small">اختر تشغيلًا لعرض تقارير الوكلاء والمناظرة.</div></div>
+    </section>
+
+    <!-- PERFORMANCE -->
+    <section class="view" id="v-perf">
+      <div class="grid g4" id="perf-stats"></div>
+      <div class="card"><h2>الأداء حسب السوق والمدة</h2><p class="muted small">من نتائج حقيقية فقط. «إشارات» = قرارات شراء/بيع منشورة. «مرشحة» = كل اتجاه قيّمه النظام حتى عند الانتظار.</p>
+        <div class="tablewrap"><table id="perf-table"><thead></thead><tbody></tbody></table></div></div>
+      <div class="card"><h2>أنماط الفشل المكتشفة</h2><div class="tablewrap"><table id="fail-table"><thead></thead><tbody></tbody></table></div></div>
+      <div class="card"><div class="row"><h2>النماذج (بطل / متحدٍّ)</h2><button class="btn ghost" id="retrain">إعادة التدريب الآن</button></div>
+        <div class="tablewrap"><table id="models-table"><thead></thead><tbody></tbody></table></div></div>
+      <div class="card"><h2>مقارنة الاستراتيجيات البديلة (خارج العينة)</h2><div class="tablewrap"><table id="strat-table"><thead></thead><tbody></tbody></table></div></div>
+    </section>
+
+    <!-- MONITOR -->
+    <section class="view" id="v-monitor">
+      <div class="card">
+        <h2>المراقبة التلقائية في الخلفية</h2>
+        <p class="muted small">تعمل على الخادم نفسه ولا تحتاج إلى بقاء هذه الصفحة مفتوحة.</p>
+        <div class="row"><label><input type="checkbox" id="mon-enabled"> تفعيل المراقبة</label>
+          <label><input type="checkbox" id="mon-agents"> تشغيل فريق الوكلاء لكل تحليل (أبطأ)</label>
+          <label>كل <input type="number" id="mon-interval" min="5" max="600"> ثانية</label></div>
+        <h3>المدد</h3><div class="row" id="mon-durs"></div>
+        <h3>الأسواق</h3><div class="row" id="mon-markets"></div>
+        <p></p><button class="btn" id="mon-save">حفظ</button> <span class="small muted" id="mon-hb"></span>
+      </div>
+    </section>
+
+    <!-- STATUS -->
+    <section class="view" id="v-status">
+      <div class="grid g3" id="status-cards"></div>
+      <div class="card"><h2>الخدمات الخلفية</h2><div class="tablewrap"><table id="svc-table"><thead><tr><th>الخدمة</th><th>الحالة</th><th>إعادات التشغيل</th><th>آخر خطأ</th></tr></thead><tbody></tbody></table></div></div>
+      <div class="card"><h2>مصادر البيانات لكل سوق</h2><div class="tablewrap"><table id="src-table"><thead><tr><th>السوق</th><th>المصدر</th><th>الحالة</th><th>العمر (ث)</th><th>مقبول</th><th>مرفوض</th><th>فرق الساعة</th></tr></thead><tbody></tbody></table></div></div>
+      <div class="card"><h2>سجل الأحداث</h2><div class="tablewrap"><table id="events"><thead><tr><th>الوقت</th><th>المستوى</th><th>النوع</th><th>الرسالة</th></tr></thead><tbody></tbody></table></div></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view" id="v-settings">
+      <div class="card">
+        <h2>جسر ExpertOption</h2>
+        <p class="small">لا توفر ExpertOption واجهة برمجية رسمية. البيانات الحقيقية (بما فيها OTC) تصل فقط عبر سكربت الجسر الذي يقرأ — قراءة فقط — الأسعار التي تستقبلها صفحتك المسجّلة الدخول، ويرسلها إلى هذا الخادم. راجع <span class="ltr">bridge/README.md</span>.</p>
+        <div class="row"><input type="text" id="tok-label" placeholder="اسم الجهاز" value="my-browser"><button class="btn" id="tok-new">إنشاء رمز جسر</button></div>
+        <div id="tok-out" class="warnbox" hidden></div>
+        <div class="tablewrap"><table id="tok-table"><thead><tr><th>#</th><th>الاسم</th><th>أُنشئ</th><th>آخر استخدام</th><th></th></tr></thead><tbody></tbody></table></div>
+        <h3>أصول وصلت من الجسر ولم تُربط بسوق</h3><div id="unknown-assets" class="small muted"></div>
+      </div>
+      <div class="card"><h2>الأسواق</h2><p class="small muted">القائمة مبدئية من المعلومات العامة؛ «مُتحقق» تعني وصول بيانات حقيقية لها من ExpertOption. اربط معرّف الأصل في المنصة إن لزم.</p>
+        <div class="tablewrap"><table id="mk-settings"><thead><tr><th>السوق</th><th>النوع</th><th>مرجعي</th><th>مُتحقق</th><th>معرّف الجسر</th><th>مفعّل</th></tr></thead><tbody></tbody></table></div></div>
+      <div class="card"><h2>الإعدادات الحالية</h2><pre class="json" id="settings-json"></pre></div>
+    </section>
+  </main>
+</div>
+<dialog id="dlg"><div id="dlg-body"></div><p><button class="btn ghost" id="dlg-close">إغلاق</button></p></dialog>
+<div class="toast" id="toast" role="status"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

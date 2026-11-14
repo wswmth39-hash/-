@@ -1,0 +1,33 @@
+# systemd unit — continuous operation with automatic restart and safe shutdown.
+# Install: sudo deploy/install.sh   (creates user 'eoplatform', venv in /opt/eoplatform)
+[Unit]
+Description=ExpertOption AI analysis platform (signals & paper trading only)
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=eoplatform
+Group=eoplatform
+WorkingDirectory=/opt/eoplatform/app
+EnvironmentFile=/etc/eoplatform/eoplatform.env
+ExecStart=/opt/eoplatform/venv/bin/python -m eoplatform serve
+Restart=always
+RestartSec=5
+# graceful shutdown: SIGTERM -> services stop, pending bars flushed, DB checkpointed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+# resource management
+MemoryMax=3G
+CPUQuota=200%
+Nice=5
+# hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/eoplatform
+StateDirectory=eoplatform
+
+[Install]
+WantedBy=multi-user.target
