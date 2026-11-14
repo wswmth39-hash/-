@@ -83,10 +83,14 @@ def cmd_check_system(a):
     gpu = shutil.which("nvidia-smi")
     rep["gpu"] = subprocess.run([gpu, "--query-gpu=name,memory.total", "--format=csv,noheader"], capture_output=True,
                                 text=True).stdout.strip() if gpu else "none detected (nvidia-smi absent)"
-    oll = shutil.which("ollama")
-    rep["ollama_binary"] = oll or "not installed — https://ollama.com/download"
-    if oll:
-        rep["ollama_version"] = subprocess.run([oll, "--version"], capture_output=True, text=True).stdout.strip()
+    oll = shutil.which("ollama") or os.environ.get("EO_OLLAMA_BIN")
+    rep["ollama_binary_on_path"] = oll or "not on PATH (fine if the server below is reachable)"
+    try:  # the server is what matters: ask it directly
+        import httpx
+        v = httpx.get(s.llm_base_url.rstrip("/").removesuffix("/v1") + "/api/version", timeout=5).json()
+        rep["ollama_server_version"] = v.get("version")
+    except Exception as e:
+        rep["ollama_server_version"] = f"unreachable ({type(e).__name__}) — install: https://ollama.com/download"
     from .agents.llm import LocalLLM
     h = LocalLLM(s).health(force=True)
     rep["llm_server"] = h["detail"]
@@ -100,7 +104,7 @@ def cmd_check_system(a):
         except Exception as e:
             rep["llm_speed"] = f"failed: {e}"
     ram = rep.get("ram_gb") or 0
-    rep["qwen3.5_9b_fit"] = ("OK (≥16 GB RAM)" if ram >= 16 else
+    rep["qwen3.5_9b_fit"] = ("OK (≥15 GB RAM; model uses ~7 GB)" if ram >= 15 else
                              "tight: 9B Q4 needs ~7 GB for weights; close other apps or use a smaller tag" if ram >= 10
                              else "insufficient RAM for 9B; use qwen3.5:4b or smaller and set EO_LLM_MODEL")
     print(json.dumps(rep, indent=2, ensure_ascii=False))

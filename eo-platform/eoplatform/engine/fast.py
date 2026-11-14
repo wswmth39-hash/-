@@ -26,7 +26,7 @@ SOURCE_AR = {"expertoption": "ExpertOption (عبر الجسر)", "binance": "Bin
 
 
 def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, settings: Settings,
-            now: float | None = None) -> dict:
+            now: float | None = None, news=None) -> dict:
     t0 = time.perf_counter()
     now = now or time.time()
     P = ANALYSIS_PERIOD[duration]
@@ -66,8 +66,16 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
 
     feats = F.compute(c)
     row = feats.iloc[-1].to_dict()
-    ev = A.evidence(row)
+    news_events = news_status = None
+    if news is not None:
+        from ..data.providers.news import market_currencies
+        news_status = news.status()
+        news_events = news.near(market_currencies(market), now, settings.news_window_min)
+    ev = A.evidence(row, candles=c, market=market, news_events=news_events,
+                    news_status=news_status if news is not None else {"ok": False}, now=now)
     sig["evidence"] = ev
+    q = hub.quality.get(market["id"], {})
+    sig["quality"] = {k: v for k, v in q.items()}
     sig["trend"] = ev["trend"]["label"]
     score = A.ensemble(ev)
     sig["ensemble_score"] = round(score, 3)
@@ -76,6 +84,9 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
     champ = registry.champion(market["id"], duration)
     if champ is not None and champ[0]["metrics"].get("source") != src:
         sig["warnings"].append("النموذج المعتمد دُرّب على مصدر بيانات آخر؛ لا يُستخدم على هذا المصدر")
+        champ = None
+    if champ is not None and champ[0]["metrics"].get("features", F.FEATURES) != F.FEATURES:
+        sig["warnings"].append("النموذج المعتمد دُرّب على قائمة مؤشرات مختلفة؛ يلزم إعادة تدريب")
         champ = None
     p_up = None
     if champ is not None:
@@ -99,6 +110,14 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
         return done()
     if ev["liquidity"].get("abnormal"):
         sig["reasons"].insert(0, "ظروف تقلب/سيولة غير طبيعية — انتظار")
+        return done()
+    if q.get(f"frozen_{src}"):
+        sig["reasons"].insert(0, "السعر مجمّد (لم يتغير منذ دقيقتين) — بيانات مشكوك فيها، انتظار")
+        return done()
+    if q.get("mismatch"):
+        sig["warnings"].append(f"عدم تطابق بين سعر ExpertOption والمرجع ({q.get('mismatch_median_pct')}%)")
+    if ev.get("news", {}).get("high_impact_soon"):
+        sig["reasons"].insert(0, "خبر اقتصادي عالي التأثير قريب من وقت الصفقة — انتظار")
         return done()
 
     if champ is None:

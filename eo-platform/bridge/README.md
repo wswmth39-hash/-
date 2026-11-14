@@ -1,4 +1,16 @@
-# جسر ExpertOption (قراءة فقط)
+# جسر ExpertOption (قراءة فقط) — معطّل افتراضيًا
+
+> ## ⚠️ اقرأ قبل التفعيل
+> قرأتُ شروط ExpertOption من موقعها مباشرة (14 نوفمبر 2026، `expertoption.com/company/policy/terms/`). البند **6.2** ينص على:
+>
+> «any implantations to the client–server relationship ... the use of automated players (also known as 'bots') ... are strictly prohibited ...
+> Client's Account will be blocked without any prior notice ... all payments to Client will be cancelled and any Client's fund and deposit will be seized.»
+>
+> * الجسر يضيف مستمعًا إلى اتصال WebSocket داخل صفحتك، وقد تعتبره المنصة «تدخلًا في العلاقة بين العميل والخادم».
+> * **الخطر: حظر الحساب ومصادرة الرصيد.** لذلك الجسر معطّل افتراضيًا (`EO_BRIDGE_ENABLED=false`)، ولا يُفعَّل إلا بقرارك الصريح.
+> * التنفيذ الآلي للصفقات على ExpertOption **غير مبني ولن يُبنى**: لا توجد واجهة رسمية، والشروط تحظر الروبوتات صراحة.
+> * البند 2.1 من الشروط: «المصدر الموثوق الوحيد لتدفق الأسعار هو الخادم الرئيسي». حتى الأسعار المعروضة في الصفحة قد لا تطابق الخادم عند ضعف الاتصال.
+
 
 ## لماذا جسر من المتصفح؟
 

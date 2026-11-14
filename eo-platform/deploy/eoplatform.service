@@ -20,7 +20,8 @@ TimeoutStopSec=30
 # resource management
 MemoryMax=3G
 CPUQuota=200%
-Nice=5
+# keep the data feed responsive while the LLM saturates the CPU (measured: WS ping timeouts)
+Nice=-2
 # hardening
 NoNewPrivileges=true
 PrivateTmp=true

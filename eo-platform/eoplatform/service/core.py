@@ -16,6 +16,9 @@ from ..agents.llm import LocalLLM
 from ..config import DURATIONS, Settings
 from ..data.hub import DataHub
 from ..data.providers.binance import BinanceProvider
+from ..data.providers.news import NewsCalendar
+from ..execution.engine import ExecutionEngine
+from .alerts import Alerter
 from ..db import DB
 from ..engine.fast import analyze
 from ..engine.model import Registry, binom_p_greater, wilson_lb
@@ -30,8 +33,9 @@ DEFAULT_MONITOR = {"enabled": False, "markets": [], "durations": [60], "interval
 class Supervisor:
     """Runs named coroutines forever; restarts them with backoff when they crash."""
 
-    def __init__(self, db: DB):
+    def __init__(self, db: DB, alert=None):
         self.db = db
+        self.alert = alert
         self.tasks: dict[str, asyncio.Task] = {}
         self.status: dict[str, dict] = {}
         self.stop = asyncio.Event()
@@ -57,6 +61,8 @@ class Supervisor:
                 st["restarts"] += 1
                 log.exception("service %s crashed; restarting in %.0fs", name, delay)
                 self.db.event("error", "service", f"توقفت الخدمة {name} وستُعاد: {e}"[:300])
+                if self.alert:
+                    self.alert("alert", "service", f"توقفت الخدمة {name} وأُعيد تشغيلها تلقائيًا")
                 try:
                     await asyncio.wait_for(self.stop.wait(), timeout=delay)
                 except asyncio.TimeoutError:
@@ -87,6 +93,15 @@ class Core:
         self.agent_activity: list[dict] = []
         self.binance: BinanceProvider | None = None
         self._bg: set[asyncio.Task] = set()  # keep references so background runs aren't GC'd
+        self.alert = Alerter(self.db, settings.alert_webhook)
+        self.news = NewsCalendar(settings.news_url) if settings.news_enabled else None
+        self.execution = ExecutionEngine(self.db, self.hub, settings, self.alert)
+        from .auto import AutoScanner
+        self.auto = AutoScanner(self)
+        self._down_since: dict[str, float] = {}
+        # Agent runs that were in progress when the process stopped can never finish: say so.
+        self.db.execute("UPDATE agent_runs SET finished_at=?, error=? WHERE finished_at IS NULL",
+                        (time.time(), "انقطع: أُعيد تشغيل الخادم أثناء التشغيل"))
 
     # ------------------------------------------------------------------ settings
     def monitor_cfg(self) -> dict:
@@ -130,7 +145,7 @@ class Core:
             raise KeyError(market_id)
         if duration not in DURATIONS:
             raise ValueError("duration must be one of 30, 60, 120, 300")
-        sig = analyze(m, duration, self.hub, self.registry, self.s)
+        sig = analyze(m, duration, self.hub, self.registry, self.s, news=self.news)
         sig["id"] = evaluator.record_signal(self.db, sig, trigger)
         return sig
 
@@ -184,6 +199,7 @@ class Core:
                 self._activity({"run_id": run_id, "signal_id": sig["id"], "agent_signal_id": agent_sig_id,
                                 "market": sig["market"], "duration": sig["duration"], "state": "done",
                                 "decision": decision, "candidate": cand, "llm_used": out.get("llm_used"),
+                                "llm_partial": out.get("llm_partial"),
                                 "elapsed": out.get("elapsed"), "started_at": started})
             except Exception as e:
                 log.exception("agent run failed")
@@ -205,8 +221,10 @@ class Core:
 
     async def svc_evaluator(self) -> None:
         while True:
-            await asyncio.get_running_loop().run_in_executor(self.pool, evaluator.resolve_pending, self.db)
-            await asyncio.sleep(5)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(self.pool, evaluator.resolve_pending, self.db)
+            await loop.run_in_executor(self.pool, self.execution.settle)
+            await asyncio.sleep(2)
 
     async def svc_monitor(self) -> None:
         while True:
@@ -239,19 +257,33 @@ class Core:
 
     async def svc_binance(self) -> None:
         mk = [m for m in list_markets(self.db, enabled_only=True) if m["kind"] == "regular" and m["reference_symbol"]]
-        self.binance = BinanceProvider(self.hub, mk, self.s.binance_rest, self.s.binance_ws)
+        self.binance = BinanceProvider(self.hub, mk, self.s.binance_rest, self.s.binance_ws,
+                                       backfill_seconds=int(self.s.binance_backfill_hours * 3600))
         await self.binance.run(self.sup.stop)
 
     async def svc_watchdog(self) -> None:
         while True:
             h = self.health()
             if h["resources"]["disk_free_mb"] < 500:
-                self.db.event("warning", "resources", "مساحة القرص منخفضة")
+                self.alert("alert", "resources", "مساحة القرص منخفضة")
+            now = time.time()
+            for src, st in h["providers"].items():
+                if st["proven"]:
+                    self._down_since.pop(src, None)
+                    continue
+                since = self._down_since.setdefault(src, now)
+                if now - since > 60:
+                    self.alert("alert", "provider", f"مصدر البيانات {src} لا يرسل بيانات حقيقية منذ أكثر من دقيقة")
             log.info("health", extra={"health": {k: h[k] for k in ("status", "resources")}})
             await asyncio.sleep(60)
 
+    async def svc_news(self) -> None:
+        while True:
+            await asyncio.get_running_loop().run_in_executor(self.pool, self.news.refresh)
+            await asyncio.sleep(60)
+
     async def start(self) -> None:
-        self.sup = Supervisor(self.db)
+        self.sup = Supervisor(self.db, self.alert)
         self.sup.spawn("data_hub", self.svc_hub)
         self.sup.spawn("evaluator", self.svc_evaluator)
         self.sup.spawn("monitor", self.svc_monitor)
@@ -260,6 +292,9 @@ class Core:
         self.sup.spawn("watchdog", self.svc_watchdog)
         if self.s.enable_binance:
             self.sup.spawn("binance_feed", self.svc_binance)
+        if self.news is not None:
+            self.sup.spawn("news_calendar", self.svc_news)
+        self.sup.spawn("auto_scanner", self.auto.run)
         self.db.event("info", "service", "بدأ تشغيل المنصة")
 
     async def stop(self) -> None:
@@ -278,7 +313,11 @@ class Core:
         bad = [n for n, st in services.items() if st["state"] != "running"]
         return {
             "status": "ok" if not bad else "degraded", "uptime": round(time.time() - self.started),
-            "services": services, "providers": self.hub.provider_state,
+            "services": services, "providers": self.hub.provider_view(),
+            "news": self.news.status() if self.news else {"ok": False, "error": "disabled"},
+            "alerts": self.alert.status(), "quality": self.hub.quality,
+            "execution": {**self.execution.state(), "mode": self.execution.config()["mode"],
+                          "auto_enabled": self.execution.config()["auto_enabled"]},
             "llm": {k: v for k, v in self.llm.health().items() if k != "models"} | {"model": self.s.llm_model},
             "monitor_heartbeat": self.db.kv_get("monitor_heartbeat"),
             "resources": {"max_rss_mb": round(usage.ru_maxrss / 1024, 1), "db_mb": round(db_size / 2**20, 2),

@@ -25,7 +25,7 @@ from ..db import DB
 from ..engine import analysis as A
 from ..engine import features as F
 from ..engine.model import (DirectionModel, Registry, build_dataset, calibration_table, choose_threshold,
-                            wilson_lb)
+                            wilson_lb, z_for)
 
 log = logging.getLogger("eo.trainer")
 MIN_SAMPLES = 1500
@@ -64,8 +64,9 @@ def strategy_predictions(X: np.ndarray) -> dict[str, np.ndarray]:
 
 
 def train_one(db: DB, registry: Registry, settings: Settings, market: dict, duration: int,
-              source: str, bars: np.ndarray) -> dict:
-    ds = build_dataset(bars, duration)
+              source: str, bars: np.ndarray | None, family: int = 1, ds=None) -> dict:
+    ds = ds if ds is not None else build_dataset(bars, duration)
+    z = z_for(family)
     res = {"market": market["id"], "duration": duration, "source": source, "samples": int(len(ds.y))}
     if len(ds.y) < MIN_SAMPLES:
         res["status"] = f"insufficient data ({len(ds.y)} < {MIN_SAMPLES} samples)"
@@ -78,7 +79,7 @@ def train_one(db: DB, registry: Registry, settings: Settings, market: dict, dura
     model = DirectionModel.train(Xtr, ytr)
     p = model.predict(Xte)
     table = calibration_table(p, yte)
-    thr = choose_threshold(table, settings.breakeven, settings.min_validation_samples)
+    thr = choose_threshold(table, settings.breakeven, settings.min_validation_samples, z)
 
     # walk-forward stability (3 expanding folds over the train+test range)
     wf = []
@@ -98,6 +99,24 @@ def train_one(db: DB, registry: Registry, settings: Settings, market: dict, dura
         strategies[name] = _acc(pred[m], yte[m]) | {"coverage": float(m.mean())}
     strategies["majority_class_baseline"] = _acc(np.full(len(yte), int(ytr.mean() > 0.5)), yte)
     strategies["xgboost_all"] = _acc((p > 0.5).astype(int), yte)
+
+    # Baseline gate: on exactly the trades the model would take (strength >= threshold), its
+    # corrected lower bound must beat the no-model baselines on those same trades. The
+    # alternative rule strategies above are reported for comparison (Performance page).
+    baseline_check = None
+    if thr is not None:
+        sel = np.abs(p - 0.5) >= thr
+        pred_sel = (p[sel] > 0.5).astype(int)
+        k, n_sel = int((pred_sel == yte[sel]).sum()), int(sel.sum())
+        model_lb = wilson_lb(k, n_sel, z)
+        # Baselines = what you get with no model: always the majority direction, or chance.
+        base = {"majority_class": float((np.full(n_sel, int(ytr.mean() > 0.5)) == yte[sel]).mean()),
+                "chance": 0.5}
+        best_name = max(base, key=base.get)
+        baseline_check = {"model_gate_lb": model_lb, "baselines": base, "best_baseline": best_name,
+                          "passed": model_lb > base[best_name]}
+        if not baseline_check["passed"]:
+            thr = None
     for name, s in strategies.items():
         db.execute("INSERT INTO strategy_results(created_at,market,duration,strategy,n,wins,accuracy,wilson_lb,details)"
                    " VALUES(?,?,?,?,?,?,?,?,?)", (time.time(), market["id"], duration, name, s["n"], s["wins"],
@@ -109,13 +128,28 @@ def train_one(db: DB, registry: Registry, settings: Settings, market: dict, dura
         "test_range": [float(ds.ts[te][0]), float(ds.ts[te][-1])],
         "test_accuracy": strategies["xgboost_all"]["acc"], "calibration": table, "threshold": thr,
         "breakeven": settings.breakeven, "walk_forward": wf, "strategies": strategies,
+        "baseline_check": baseline_check, "z_gate": z, "family_size": family,
         "features": F.FEATURES, "analysis_period": P,
     }
 
     champ = registry.champion(market["id"], duration)
+    # The incumbent must keep passing the CURRENT gate on the NEWEST held-out window.
+    if champ is not None and champ[0]["metrics"].get("source") == source:
+        cthr = champ[0]["metrics"].get("threshold")
+        ctab = calibration_table(champ[1].predict(Xte), yte)
+        crow = next((r for r in ctab if cthr is not None and r["edge"] == cthr), None)
+        ok = bool(crow and crow["n"] >= settings.min_validation_samples
+                  and wilson_lb(crow["wins"], crow["n"], z) > settings.breakeven)
+        if not ok:
+            why = (f"failed re-validation on newest window (family-wise z={z:.2f}): "
+                   f"acc {crow['acc'] if crow else None} on {crow['n'] if crow else 0}")
+            registry.demote(champ[0]["id"], why)
+            db.event("warning", "model", f"سحب النموذج #{champ[0]['id']} {market['id']} {duration}ث: لم يجتز إعادة التحقق")
+            champ = None
     decision, note = "rejected", ""
     if thr is None:
-        note = "no threshold reached significance and break-even on held-out data"
+        note = ("does not beat the best simple baseline on its own trades" if baseline_check and not
+                baseline_check["passed"] else "no threshold reached significance and break-even on held-out data")
     else:
         ch_row = next(r for r in table if r["edge"] == thr)
         if champ is None or champ[0]["metrics"].get("source") != source:
@@ -156,19 +190,22 @@ def pick_source(db: DB, market: dict) -> str | None:
 
 def retrain_all(db: DB, registry: Registry, settings: Settings, markets: list[dict] | None = None) -> list[dict]:
     from ..markets import list_markets
-    out = []
+    out, jobs = [], []
     for m in markets or list_markets(db, enabled_only=True):
         src = pick_source(db, m)
         if src is None:
             continue
         bars = np.asarray(db.bars(m["id"], src, 0), dtype=float)
         for d in DURATIONS:
-            try:
-                out.append(train_one(db, registry, settings, m, d, src, bars))
-            except Exception as e:  # one failure must not stop the others
-                log.exception("training failed for %s %s", m["id"], d)
-                out.append({"market": m["id"], "duration": d, "status": f"error: {e}"})
-    db.kv_set("last_retrain", {"at": time.time(), "results": out})
+            jobs.append((m, d, src, build_dataset(bars, d)))
+    family = sum(1 for j in jobs if len(j[3].y) >= MIN_SAMPLES)   # models actually tested in this run
+    for m, d, src, ds in jobs:
+        try:
+            out.append(train_one(db, registry, settings, m, d, src, None, family=family, ds=ds))
+        except Exception as e:  # one failure must not stop the others
+            log.exception("training failed for %s %s", m["id"], d)
+            out.append({"market": m["id"], "duration": d, "status": f"error: {e}"})
+    db.kv_set("last_retrain", {"at": time.time(), "results": out, "family_size": family, "z_gate": z_for(family)})
     return out
 
 

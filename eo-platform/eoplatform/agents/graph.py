@@ -83,7 +83,11 @@ class AgentSystem:
             out = self.llm.ask_json(prompt + "\n" + LANG)
             return out, [{"agent": who, "llm": True, "secs": round(time.time() - t, 1)}]
         except Exception as e:
-            log.warning("%s LLM failed: %s", who, e)
+            # Circuit breaker: one failure (usually a timeout) switches the rest of this run to
+            # deterministic reasoning instead of paying the timeout again for every agent.
+            self.use_llm = False
+            self.llm_failed = True
+            log.warning("%s LLM failed, rest of run deterministic: %s", who, e)
             return None, [{"agent": who, "llm": False, "error": f"{type(e).__name__}: {e}"[:200]}]
 
     def _ctx(self, s: EOAgentState) -> str:
@@ -98,7 +102,7 @@ class AgentSystem:
         name = AGENTS[key]
 
         def node(s: EOAgentState) -> dict:
-            e = s["evidence"][key]
+            e = s["evidence"].get(key) or {"score": 0.0, "facts": ["غير متاح لهذا التحليل"]}
             rep = {"agent": key, "name_ar": name, "score": round(e["score"], 3), "facts": e["facts"],
                    "stance": "bullish" if e["score"] > 0.1 else "bearish" if e["score"] < -0.1 else "neutral",
                    "summary": f"{name}: " + _fmt_facts(e), "llm": False}
@@ -145,7 +149,8 @@ class AgentSystem:
         return node
 
     def _research_manager(self, s: EOAgentState) -> dict:
-        reps = list(s["reports"].values())
+        # the news analyst is risk-only (no direction), so it does not vote here
+        reps = [r for k, r in s["reports"].items() if k != "news"]
         net = sum(r["score"] for r in reps) / max(1, len(reps))
         agree = sum(1 for r in reps if r["score"] * net > 0.05)
         oppose = sum(1 for r in reps if r["score"] * net < -0.05)
@@ -190,6 +195,13 @@ class AgentSystem:
             vetoes.append("البيانات ليست حية")
         if s["evidence"]["liquidity"].get("abnormal"):
             vetoes.append("تقلب/سيولة غير طبيعية")
+        nw = s["evidence"].get("news") or {}
+        if nw.get("high_impact_soon"):
+            vetoes.append("خبر اقتصادي عالي التأثير قريب")
+        if nw.get("unavailable"):
+            warnings_pre = ["تقويم الأخبار غير متاح"]
+        else:
+            warnings_pre = []
         if r["lean"] == "NEUTRAL":
             vetoes.append("لا أفضلية واضحة في الأدلة")
         if r["oppose"] >= max(2, r["agree"]):
@@ -198,7 +210,7 @@ class AgentSystem:
             vetoes.append("يخالف إشارة النموذج المُتحقق منه")
         if rec.get("n", 0) >= 30 and rec.get("accuracy") is not None and rec["accuracy"] < 0.5:
             vetoes.append(f"سجل هذا السوق الحي ضعيف ({rec['accuracy']*100:.0f}% على {rec['n']})")
-        warnings = []
+        warnings = list(warnings_pre)
         if not f.get("validated"):
             warnings.append("لا يوجد نموذج مُتحقق منه — أي اتجاه هنا غير مثبت إحصائيًا")
         level = "high" if vetoes else "medium" if warnings else "low"
@@ -277,6 +289,7 @@ class AgentSystem:
             return {"final": {"decision": "WAIT", "reason": "لا توجد أدلة كافية (بيانات غير متاحة)", "llm": False},
                     "skipped": True}
         self.use_llm = bool(self.llm and self.llm.health()["ok"])
+        self.llm_failed = False
         t = time.time()
         init: EOAgentState = {
             "market": fast_signal["market"], "market_name": fast_signal["market_name"], "kind": fast_signal["kind"],
@@ -289,6 +302,7 @@ class AgentSystem:
         }
         out = self.graph.invoke(init, {"recursion_limit": 60})
         out["elapsed"] = round(time.time() - t, 2)
-        out["llm_used"] = self.use_llm
-        out["llm_model"] = self.llm.model if self.use_llm else None
+        out["llm_used"] = self.use_llm or self.llm_failed
+        out["llm_partial"] = self.llm_failed   # LLM failed mid-run; later agents ran deterministically
+        out["llm_model"] = self.llm.model if out["llm_used"] else None
         return out

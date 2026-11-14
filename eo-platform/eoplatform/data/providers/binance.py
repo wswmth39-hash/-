@@ -43,6 +43,14 @@ class BinanceProvider:
         end_ms = int(time.time() * 1000)
         for sym, mid in self.by_symbol.items():
             start_ms = end_ms - self.backfill_seconds * 1000
+            last = self.hub.db.one("SELECT max(ts) t FROM bars1s WHERE market=? AND source=?", (mid, SOURCE))
+            if last and last["t"]:
+                start_ms = max(start_ms, (last["t"] + 1) * 1000)   # only what is missing
+                # ...and repair holes in the last 2 hours (e.g. seconds lost around a restart)
+                recent = [r[0] for r in self.hub.db.bars(mid, SOURCE, last["t"] - 7200)]
+                hole = next((a + 1 for a, b in zip(recent, recent[1:]) if b - a > 1), None)
+                if hole is not None:
+                    start_ms = min(start_ms, hole * 1000)
             total = 0
             while start_ms < end_ms:
                 r = await client.get(f"{self.rest_base}/api/v3/klines",
@@ -51,8 +59,11 @@ class BinanceProvider:
                 rows = r.json()
                 if not rows:
                     break
+                # only klines closed for >= 2 s: REST can return a just-closed kline before it is final
+                # (found by the live source-verification test: 1 mismatched second at a restart)
+                final_before = (time.time() - 2) * 1000
                 bars = [(k[0] // 1000, float(k[1]), float(k[2]), float(k[3]), float(k[4]), 1)
-                        for k in rows if k[6] < time.time() * 1000]  # closed klines only
+                        for k in rows if k[6] < final_before]
                 self.hub.ingest_bars(mid, SOURCE, bars, live=False)
                 total += len(bars)
                 start_ms = rows[-1][0] + 1000
@@ -72,8 +83,11 @@ class BinanceProvider:
         if mid is None:
             return
         self.messages += 1
-        self.hub.ingest_bars(mid, SOURCE, [(k["t"] // 1000, float(k["o"]), float(k["h"]),
-                                            float(k["l"]), float(k["c"]), int(k.get("n", 1)) or 1)])
+        r = self.hub.ingest_bars(mid, SOURCE, [(k["t"] // 1000, float(k["o"]), float(k["h"]),
+                                                float(k["l"]), float(k["c"]), int(k.get("n", 1)) or 1)])
+        if r["accepted"] and not self.hub.provider_state.get(SOURCE, {}).get("connected"):
+            # CONNECTED is declared only after the first genuine closed kline was accepted.
+            self.hub.set_provider_state(SOURCE, True, "verified: live closed 1s klines arriving")
 
     async def run(self, stop: asyncio.Event) -> None:
         """Connect, backfill, stream; reconnect with jittered exponential backoff forever."""
@@ -84,10 +98,11 @@ class BinanceProvider:
         url = f"{self.ws_base.removesuffix('/ws')}/stream?streams={streams}"
         while not stop.is_set():
             try:
-                async with httpx.AsyncClient(timeout=15) as client:
-                    await self.backfill(client)
                 async with websockets.connect(url, ping_interval=20, ping_timeout=20, open_timeout=15) as ws:
-                    self.hub.set_provider_state(SOURCE, True, "stream connected")
+                    # Stream first, then backfill: messages queue on the socket meanwhile, so no
+                    # second falls between the end of the backfill and the start of the stream.
+                    async with httpx.AsyncClient(timeout=15) as client:
+                        await self.backfill(client)
                     delay = 1.0
                     while not stop.is_set():
                         try:

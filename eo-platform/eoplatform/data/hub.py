@@ -56,7 +56,11 @@ class DataHub:
         self._lock = threading.RLock()
         self.series: dict[tuple[str, str], Series] = {}
         self.provider_state: dict[str, dict] = {}   # source -> {connected, detail, since, reconnects}
+        self.last_data_at: dict[str, float] = {}     # source -> wall time of last accepted LIVE update
+        self.quality: dict[str, dict] = {}           # market -> {frozen, mismatch, ...}
         self._loaded: set[tuple[str, str]] = set()
+        self.frozen_after = 120        # identical OHLC for this many consecutive live seconds → frozen
+        self.mismatch_pct = 0.3        # median |ExpertOption − reference| above this % → mismatch
 
     # ------------------------------------------------------------------ providers
     def set_provider_state(self, source: str, connected: bool, detail: str = "") -> None:
@@ -72,6 +76,20 @@ class DataHub:
             if connected:
                 st["ever_connected"] = True
             st["connected"], st["detail"] = connected, detail
+
+    def provider_view(self, now: float | None = None) -> dict:
+        """Provider state with PROOF: 'proven' is true only when the transport is up AND
+        genuine data from it was accepted within the DELAYED window. This is the only
+        thing the dashboard may label CONNECTED."""
+        now = now or time.time()
+        with self._lock:
+            out = {}
+            for src, st in self.provider_state.items():
+                last = self.last_data_at.get(src)
+                age = round(now - last, 1) if last else None
+                out[src] = {**{k: v for k, v in st.items() if k != "ever_connected"}, "last_data_age": age,
+                            "proven": bool(st["connected"] and last and now - last <= self.delayed_max_age)}
+            return out
 
     def provider_error(self, source: str) -> None:
         with self._lock:
@@ -139,6 +157,7 @@ class DataHub:
                 if live:  # historical imports must never make a series look LIVE
                     s.last_rx = now
                     s.clock_offset = now - ts
+                    self.last_data_at[source] = now
                 acc += 1
             s.accepted += acc
         return {"accepted": acc, "rejected": len(ticks) - acc}
@@ -153,14 +172,18 @@ class DataHub:
             s = self._series(market, source)
             existing = {b[0] for b in list(s.bars)[-600:]}
             new = []
+            live_fill = False
             for b in sorted(bars, key=lambda x: x[0]):
                 ts, o, h, l, c = (float(x) for x in b[:5])
                 n = int(b[5]) if len(b) > 5 else 1
                 if not all(self._valid(s, ts, p, now) for p in (o, h, l, c)) or h < max(o, c, l) or l > min(o, c, h):
                     self._reject(s, "bad_bar"); continue
                 tsi = int(ts)
+                if tsi in existing:
+                    s.rejected["duplicate"] = s.rejected.get("duplicate", 0) + 1
+                    continue
                 if s.bars and tsi < s.bars[-1][0] and live:
-                    self._reject(s, "out_of_order"); continue
+                    live_fill = True  # fills a hole older than the newest bar (e.g. queued during backfill)
                 bar = (tsi, o, h, l, c, n)
                 if tsi in existing:
                     continue
@@ -169,7 +192,7 @@ class DataHub:
                 if live or not s.bars or tsi > s.bars[-1][0]:
                     s.last_price, s.last_ts = c, tsi + 1
             if new:
-                if live or not s.bars or new[0][0] > s.bars[-1][0]:
+                if (live and not live_fill) or not s.bars or new[0][0] > s.bars[-1][0]:
                     s.bars.extend(new)
                 else:  # backfill older than what we hold: rebuild ordered window
                     merged = sorted({b[0]: b for b in list(s.bars) + new}.values())
@@ -178,6 +201,7 @@ class DataHub:
             if live and acc:
                 s.last_rx = now
                 s.clock_offset = now - s.last_ts
+                self.last_data_at[source] = now
             s.accepted += acc
         return {"accepted": acc, "rejected": len(bars) - acc}
 
@@ -200,6 +224,8 @@ class DataHub:
                 if old != s.state and (old == "LIVE" or s.state == "LIVE"):
                     self.db.event("info" if s.state == "LIVE" else "warning", "freshness",
                                   f"{s.market} [{s.source}]: {STATES_AR.get(old, old)} ← {STATES_AR[s.state]}")
+                if s.state == "LIVE":
+                    self._check_frozen(s)
                 pend, s.pending = s.pending, []
                 if pend:
                     try:
@@ -207,6 +233,39 @@ class DataHub:
                     except Exception:
                         log.exception("flush failed; will retry")
                         s.pending = pend + s.pending
+
+        self._check_mismatch()
+
+    def _check_frozen(self, s: Series) -> None:
+        tail = list(s.bars)[-self.frozen_after:]
+        q = self.quality.setdefault(s.market, {})
+        frozen = (len(tail) >= self.frozen_after and tail[-1][0] - tail[0][0] == len(tail) - 1
+                  and len({b[1:5] for b in tail}) == 1)
+        key = f"frozen_{s.source}"
+        if frozen != q.get(key, False):
+            self.db.event("warning" if frozen else "info", "quality",
+                          f"{s.market} [{s.source}]: " + ("السعر ثابت تمامًا منذ دقيقتين — بيانات مجمدة محتملة"
+                                                         if frozen else "عادت حركة السعر"))
+        q[key] = frozen
+
+    def _check_mismatch(self) -> None:
+        """Compare ExpertOption bridge prices with the reference feed at identical seconds."""
+        markets = {m for (m, src) in self.series if src == "expertoption"} & {m for (m, src) in self.series if src == "binance"}
+        for m in markets:
+            a = {b[0]: b[4] for b in list(self.series[(m, "expertoption")].bars)[-120:]}
+            b = {x[0]: x[4] for x in list(self.series[(m, "binance")].bars)[-120:]}
+            common = sorted(set(a) & set(b))[-60:]
+            if len(common) < 10:
+                continue
+            diffs = sorted(abs(a[t] / b[t] - 1) * 100 for t in common)
+            med = diffs[len(diffs) // 2]
+            q = self.quality.setdefault(m, {})
+            mism = med > self.mismatch_pct
+            if mism != q.get("mismatch", False):
+                self.db.event("warning" if mism else "info", "quality",
+                              f"{m}: فرق بين سعر ExpertOption والمصدر المرجعي {med:.3f}%"
+                              + (" — عدم تطابق" if mism else " — عاد التطابق"))
+            q.update(mismatch=mism, mismatch_median_pct=round(med, 4), mismatch_samples=len(common))
 
     def _state(self, s: Series, now: float) -> str:
         if not s.last_rx:

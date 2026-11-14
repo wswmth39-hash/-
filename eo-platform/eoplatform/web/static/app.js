@@ -27,6 +27,7 @@ async function api(path, opt = {}) {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3500); }
 function badge(cls, text) { return `<span class="badge ${esc(cls)}">${esc(text)}</span>`; }
 function dot(cls) { return `<span class="dot ${esc(cls)}"></span>`; }
+function setPillText(id, text, cls, title) { const p = $(id); p.lastElementChild.textContent = text; setPill(id, cls, title); }
 function setPill(id, cls, title) { const p = $(id); p.querySelector('.dot').className = 'dot ' + cls; p.title = title || ''; }
 function table(el, head, rows) {
   $(el + ' thead').innerHTML = head ? '<tr>' + head.map((h) => `<th>${esc(h)}</th>`).join('') + '</tr>' : $(el + ' thead').innerHTML;
@@ -37,7 +38,7 @@ function table(el, head, rows) {
 $$('#nav button').forEach((b) => b.addEventListener('click', () => {
   $$('#nav button').forEach((x) => x.classList.toggle('active', x === b));
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === 'v-' + b.dataset.view));
-  ({signals: loadSignals, agents: loadAgents, perf: loadPerf, monitor: loadMonitor, status: loadStatus, settings: loadSettings}[b.dataset.view] || (() => {}))(true);
+  ({auto: loadAuto, exec: loadExec, signals: loadSignals, agents: loadAgents, perf: loadPerf, monitor: loadMonitor, status: loadStatus, settings: loadSettings}[b.dataset.view] || (() => {}))(true);
 }));
 $('#theme').addEventListener('click', () => {
   const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
@@ -133,7 +134,7 @@ async function pollAgentResult(signalId) {
     if (act.state === 'done') {
       box.innerHTML = `🤖 قرار فريق الوكلاء: ${badge(act.decision, DEC[act.decision])}` +
         (act.candidate && act.decision === 'WAIT' ? ` <span class="muted">(مرشح: ${esc(DEC[act.candidate])})</span>` : '') +
-        ` · ${act.llm_used ? 'بنموذج لغوي محلي' : 'استدلال حتمي (النموذج اللغوي غير متاح)'} · ${esc(act.elapsed)} ث ` +
+        ` · ${act.llm_partial ? 'النموذج اللغوي جزئيًا (فشل أثناء التشغيل وأُكمل حتميًا)' : act.llm_used ? 'بنموذج لغوي محلي' : 'استدلال حتمي (النموذج اللغوي غير متاح)'} · ${esc(act.elapsed)} ث ` +
         `<button class="btn ghost" id="see-run">عرض المناظرة</button>`;
       $('#see-run').addEventListener('click', () => showRun(act.run_id));
       return;
@@ -192,9 +193,17 @@ async function refresh() {
   const h = OV.health;
   setPill('#pill-svc', h.status === 'ok' ? 'ok' : 'warn', h.status);
   const pv = h.providers || {};
-  setPill('#pill-bridge', pv.expertoption?.connected && OV.markets.some((m) => m.best_source === 'expertoption' && m.state === 'LIVE') ? 'ok' : pv.expertoption ? 'warn' : 'bad', pv.expertoption?.detail || 'لم يتصل الجسر بعد');
-  setPill('#pill-ref', pv.binance?.connected ? 'ok' : 'bad', pv.binance?.detail || '');
-  setPill('#pill-llm', h.llm.ok ? 'ok' : 'warn', h.llm.detail);
+  // CONNECTED is shown only with proof: transport up AND genuine data accepted recently.
+  const proven = (p) => p && p.proven;
+  setPillText('#pill-bridge', !OV.bridge_enabled ? 'جسر ExpertOption: معطّل' : proven(pv.expertoption) ? 'ExpertOption: متصل ✓' : 'ExpertOption: غير متصل',
+    proven(pv.expertoption) ? 'ok' : 'bad', pv.expertoption?.detail || (OV.bridge_enabled ? 'لم تصل بيانات من الجسر' : 'معطّل افتراضيًا — انظر الإعدادات'));
+  setPillText('#pill-ref', proven(pv.binance) ? 'Binance: متصل ✓' : 'Binance: غير متصل', proven(pv.binance) ? 'ok' : 'bad',
+    pv.binance ? `${pv.binance.detail} · آخر بيانات قبل ${pv.binance.last_data_age ?? '—'} ث` : 'لم يتصل');
+  setPillText('#pill-llm', h.llm.ok ? `${h.llm.model}: جاهز` : 'النموذج المحلي: غير متاح', h.llm.ok ? 'ok' : 'warn', h.llm.detail);
+  setPillText('#pill-news', h.news?.ok ? 'الأخبار: متاحة' : 'الأخبار: غير متاحة', h.news?.ok ? 'ok' : 'warn', h.news?.error || `${h.news?.events || 0} حدث`);
+  const ex = OV.execution || {};
+  setPillText('#pill-mode', ex.kill_switch ? 'إيقاف طارئ' : ex.halted ? 'التداول موقوف' : ex.mode === 'paper' ? (ex.auto_enabled ? 'AUTO · تجريبي' : 'تجريبي') : (ex.auto_enabled ? 'AUTO · تحليل فقط' : 'تحليل فقط'),
+    ex.kill_switch || ex.halted ? 'bad' : ex.mode === 'paper' ? 'warn' : 'ok', ex.halt_reason || 'لا يوجد تداول حقيقي — غير متاح');
   const sel = document.activeElement === $('#market');
   if (!sel) fillMarkets();
   table('#mkt-table', null, OV.markets.filter((m) => m.best_source).map((m) => {
@@ -251,7 +260,7 @@ async function loadAgents() {
     (a.llm.ok ? '' : '<div class="warnbox">بدون النموذج المحلي يعمل الفريق باستدلال حتمي على نفس الأدلة. لتفعيله: ثبّت Ollama ثم <span class="ltr">ollama pull qwen3.5:9b</span></div>');
   table('#runs', null, a.runs.map((r) => `<tr class="click" data-run="${esc(r.id)}"><td>${esc(r.id)}</td><td>${esc(r.market)}</td><td>${esc(DUR[r.duration])}</td>
     <td>${r.decision ? badge(r.decision, DEC[r.decision]) : (r.error ? badge('loss', 'خطأ') : badge('pending', 'يعمل'))}</td>
-    <td>${r.llm_used ? esc(r.llm_model) : 'حتمي'}</td><td>${r.finished_at ? esc((r.finished_at - r.started_at).toFixed(1)) : '—'}</td><td>${esc(fmtT(r.started_at))}</td></tr>`));
+    <td>${!r.finished_at ? '—' : r.llm_used ? esc(r.llm_model) : 'حتمي'}</td><td>${r.finished_at ? esc((r.finished_at - r.started_at).toFixed(1)) : '—'}</td><td>${esc(fmtT(r.started_at))}</td></tr>`));
   $$('#runs tr.click').forEach((tr) => tr.addEventListener('click', () => showRun(tr.dataset.run, true)));
 }
 async function showRun(id, inline) {
@@ -268,13 +277,14 @@ async function showRun(id, inline) {
   if (inline) $('#run-detail').innerHTML = h; else { $('#dlg-body').innerHTML = h; $('#dlg').showModal(); }
 }
 
-function summ(s) { return s && s.n ? `${pct(s.accuracy)} <span class="muted small">(${s.wins}/${s.n}، أدنى ${pct(s.wilson_lb)})</span>` : '<span class="muted">—</span>'; }
+function summ(s) { return s && s.n ? `${pct(s.accuracy)} <span class="muted small">(${s.wins}/${s.n}، أدنى ${pct(s.wilson_lb)}${s.ev_per_unit != null ? `، عائد/وحدة ${s.ev_per_unit.toFixed(3)}` : ''})</span>` : '<span class="muted">—</span>'; }
 async function loadPerf() {
   const [p, m, st] = await Promise.all([api('/api/performance'), api('/api/models'), api('/api/strategies')]);
   const o = p.overall_signals, c = p.overall_candidates;
   $('#perf-stats').innerHTML = [
     ['دقة الإشارات المنشورة', o.n ? pct(o.accuracy) : '—', `${o.n} نتيجة`],
     ['دقة كل الاتجاهات المرشحة', c.n ? pct(c.accuracy) : '—', `${c.n} نتيجة`],
+    ['العائد المتوقع/وحدة (منشورة)', o.ev_per_unit == null ? '—' : o.ev_per_unit.toFixed(3), 'بعد احتساب العائد: ربح ← +العائد، خسارة ← −1'],
     ['نقطة التعادل', pct(p.breakeven), 'الدقة اللازمة لعدم الخسارة'],
     ['ملغاة / قيد الانتظار', `${p.void} / ${p.pending}`, 'ملغاة = لا يوجد سعر حقيقي عند الانتهاء'],
   ].map(([a, b, c2]) => `<div class="stat card"><span>${esc(a)}</span><b>${esc(b)}</b><span>${esc(c2)}</span></div>`).join('');
@@ -286,7 +296,10 @@ async function loadPerf() {
   table('#models-table', ['#', 'السوق', 'المدة', 'الحالة', 'المصدر', 'دقة الاختبار', 'العتبة', 'عينات تدريب/اختبار', 'ملاحظة'], m.models.map((r) =>
     `<tr><td>${esc(r.id)}</td><td>${esc(r.market)}</td><td>${esc(DUR[r.duration])}</td><td>${badge(r.status === 'champion' ? 'win' : r.status === 'rejected' ? 'loss' : '', ST[r.status])}</td>
      <td>${esc(SRC[r.metrics.source] || '—')}</td><td>${pct(r.metrics.test_accuracy)}</td><td>${r.metrics.threshold == null ? 'لا تداول' : esc(r.metrics.threshold)}</td>
-     <td>${esc(r.metrics.train_samples)} / ${esc(r.metrics.test_samples)}</td><td class="small">${esc(r.note || '')}</td></tr>`));
+     <td>${esc(r.metrics.train_samples)} / ${esc(r.metrics.test_samples)}</td><td class="small">${esc(r.note || '')}${r.status === 'retired' && r.promoted_at && r.metrics.threshold != null ? ` <button class="btn ghost" data-rollback="${esc(r.id)}">استعادة</button>` : ''}</td></tr>`));
+  $$('[data-rollback]').forEach((b) => b.addEventListener('click', async () => {
+    try { await api(`/api/models/${b.dataset.rollback}/rollback`, {method: 'POST'}); toast('تمت استعادة النموذج'); loadPerf(); } catch (e) { toast('خطأ: ' + e.message); }
+  }));
   table('#strat-table', ['السوق', 'المدة', 'الاستراتيجية', 'الدقة', 'الحد الأدنى 95%', 'العدد'], st.map((r) =>
     `<tr><td>${esc(r.market)}</td><td>${esc(DUR[r.duration])}</td><td class="ltr">${esc(r.strategy)}</td><td>${pct(r.accuracy)}</td><td>${pct(r.wilson_lb)}</td><td>${esc(r.n)}</td></tr>`));
 }
@@ -315,14 +328,20 @@ async function loadStatus() {
   const pv = h.providers || {};
   const card = (t, ok, body) => `<div class="card"><h2>${dot(ok)} ${esc(t)}</h2><div class="small">${body}</div></div>`;
   $('#status-cards').innerHTML =
-    card('جسر ExpertOption', pv.expertoption?.connected ? 'ok' : 'bad', pv.expertoption ? `${esc(pv.expertoption.detail)}<br>أخطاء: ${esc(pv.expertoption.errors)}` : 'لم يُرسل الجسر أي بيانات بعد. بدونه لا توجد أسعار ExpertOption ولا OTC.') +
-    card('Binance (مرجعي للعملات الرقمية)', pv.binance?.connected ? 'ok' : 'bad', pv.binance ? `${esc(pv.binance.detail)}<br>إعادات اتصال: ${esc(pv.binance.reconnects)} · أخطاء: ${esc(pv.binance.errors)}` : 'غير مفعّل أو لم يتصل') +
+    card('جسر ExpertOption', pv.expertoption?.proven ? 'ok' : 'bad', pv.expertoption ? `${pv.expertoption.proven ? '<b>متصل ✓ (بيانات حقيقية حديثة)</b>' : '<b>غير متصل</b>'}<br>${esc(pv.expertoption.detail)}<br>آخر بيانات قبل ${esc(pv.expertoption.last_data_age ?? '—')} ث · أخطاء: ${esc(pv.expertoption.errors)}` : 'لم يُرسل الجسر أي بيانات. بدونه لا توجد أسعار ExpertOption ولا OTC.') +
+    card('Binance (مرجعي للعملات الرقمية)', pv.binance?.proven ? 'ok' : 'bad', pv.binance ? `${pv.binance.proven ? '<b>متصل ✓ (بيانات حقيقية حديثة)</b>' : '<b>غير متصل</b>'}<br>${esc(pv.binance.detail)}<br>آخر بيانات قبل ${esc(pv.binance.last_data_age ?? '—')} ث · إعادات اتصال: ${esc(pv.binance.reconnects)} · أخطاء: ${esc(pv.binance.errors)}` : 'غير مفعّل أو لم يتصل') +
+    card('تقويم الأخبار', h.news?.ok ? 'ok' : 'warn', h.news?.ok ? `${esc(h.news.events)} حدث · آخر تحديث ${esc(fmtT(h.news.fetched_at))}` : esc(h.news?.error || 'غير متاح')) +
+    card('التنبيهات', h.alerts.webhook_configured ? 'ok' : 'warn', h.alerts.webhook_configured ? `Webhook مفعّل · أُرسل ${esc(h.alerts.sent)} · فشل ${esc(h.alerts.failed)}` : 'التنبيهات تظهر هنا وفي السجل فقط. لإرسالها إلى جوالك اضبط EO_ALERT_WEBHOOK.') +
     card('النموذج اللغوي المحلي', h.llm.ok ? 'ok' : 'warn', `${esc(h.llm.model)}<br>${esc(h.llm.detail)}`) +
     card('الموارد', 'ok', `ذاكرة قصوى: ${esc(h.resources.max_rss_mb)} MB<br>قاعدة البيانات: ${esc(h.resources.db_mb)} MB<br>مساحة حرة: ${esc(h.resources.disk_free_mb)} MB`) +
     card('مدة التشغيل', h.status === 'ok' ? 'ok' : 'warn', `${esc(Math.round(h.uptime / 60))} دقيقة · الحالة ${esc(h.status)}`);
   table('#svc-table', null, Object.entries(h.services).map(([n, s]) => `<tr><td class="ltr">${esc(n)}</td><td>${dot(s.state === 'running' ? 'ok' : 'bad')} ${esc(s.state)}</td><td>${esc(s.restarts)}</td><td class="small">${esc(s.last_error || '')}</td></tr>`));
   table('#src-table', null, mk.flatMap((m) => m.sources.map((s) => `<tr><td>${esc(m.id)}</td><td>${esc(SRC[s.source] || s.source)}</td><td>${dot(STATE[s.state][1])} ${esc(STATE[s.state][0])}</td>
     <td>${esc(s.age ?? '—')}</td><td>${esc(s.accepted)}</td><td class="small">${esc(JSON.stringify(s.rejected))}</td><td>${esc(s.clock_offset ?? '—')}</td></tr>`)));
+  const regs = mk.filter((m) => m.kind === 'regular' && m.reference_symbol);
+  if (!$('#verify-market').options.length) $('#verify-market').innerHTML = regs.map((m) => `<option value="${esc(m.id)}">${esc(m.name_ar)} (${esc(m.reference_symbol)})</option>`).join('');
+  const nw = await api('/api/news').catch(() => ({upcoming: []}));
+  table('#news-table', null, nw.upcoming.map((e) => `<tr><td>${esc(fmtT(e.ts))}</td><td>${esc(e.currency)}</td><td class="ltr">${esc(e.title)}</td><td>${badge(e.impact === 'High' ? 'loss' : 'pending', e.impact === 'High' ? 'عالي' : 'متوسط')}</td><td>${esc(e.forecast)}</td><td>${esc(e.previous)}</td></tr>`));
   table('#events', null, ev.map((e) => `<tr><td>${esc(fmtT(e.ts))}</td><td>${badge(e.level === 'error' ? 'loss' : e.level === 'warning' ? 'pending' : '', e.level)}</td><td>${esc(e.kind)}</td><td class="small">${esc(e.message)}</td></tr>`));
 }
 
@@ -332,6 +351,7 @@ async function loadSettings() {
   table('#tok-table', null, toks.map((t) => `<tr><td>${esc(t.id)}</td><td>${esc(t.label)}</td><td>${esc(fmtT(t.created_at))}</td><td>${esc(fmtT(t.last_used))}</td>
     <td>${t.revoked ? 'ملغى' : `<button class="btn ghost" data-revoke="${esc(t.id)}">إلغاء</button>`}</td></tr>`));
   $$('[data-revoke]').forEach((b) => b.addEventListener('click', async () => { await api(`/api/bridge/tokens/${b.dataset.revoke}/revoke`, {method: 'POST'}); loadSettings(); }));
+  if (!OV.bridge_enabled) $('#tok-out').hidden = false, $('#tok-out').innerHTML = 'الجسر <b>معطّل</b>. شروط ExpertOption (البند 6.2) تحظر الروبوتات و«أي تدخل في الاتصال بين العميل والخادم» مع حظر الحساب ومصادرة الأموال. التفعيل قرارك: EO_BRIDGE_ENABLED=true في ‎.env‎ — راجع bridge/README.md.';
   $('#unknown-assets').textContent = (OV?.unknown_bridge_assets || []).join('، ') || 'لا يوجد';
   table('#mk-settings', null, mk.map((m) => `<tr><td>${esc(m.name_ar)} <span class="muted small ltr">${esc(m.id)}</span></td><td>${m.kind === 'otc' ? 'OTC' : 'عادي'}</td>
     <td class="ltr">${esc(m.reference_symbol || '—')}</td><td>${m.catalog_verified ? '✔' : '—'}</td>
@@ -347,10 +367,84 @@ $('#tok-new').addEventListener('click', async () => {
   loadSettings();
 });
 
+$('#verify-btn').addEventListener('click', async () => {
+  const out = $('#verify-out'); out.textContent = 'جارٍ التحقق من المصدر…';
+  try {
+    const r = await api('/api/verify/' + encodeURIComponent($('#verify-market').value));
+    const ok = r.compared > 0 && r.match_rate === 1;
+    out.innerHTML = `<div class="${ok ? 'okbox' : 'warnbox'}">قورنت ${esc(r.compared)} ثانية مع ${esc(r.symbol)} من Binance نفسه: تطابق تام في ${esc(r.exact_matches)} (${pct(r.match_rate)}). ناقصة لدينا: ${esc(r.missing_in_ours)}.${r.examples_of_mismatch.length ? ' أمثلة اختلاف: ' + esc(JSON.stringify(r.examples_of_mismatch)) : ''}</div>`;
+  } catch (e) { out.innerHTML = `<div class="warnbox">${esc(e.message)}</div>`; }
+});
+
+// ---------------------------------------------------------------- AUTO
+async function loadAuto() {
+  const [b, ex] = await Promise.all([api('/api/auto/board'), api('/api/execution')]);
+  $('#auto-on').checked = ex.config.auto_enabled;
+  $('#auto-why').textContent = b.why || '';
+  $('#auto-at').textContent = b.at ? 'آخر مسح: ' + fmtTime(b.at) + ` · ${b.evaluated ?? 0} تقييم` : '';
+  const c = b.chosen;
+  $('#auto-chosen').innerHTML = c ? `<div class="okbox"><b>الفرصة المختارة:</b> ${esc(c.market_name_ar)} · ${badge(c.decision, DEC[c.decision])} · ${esc(DUR[c.duration])} · ثقة مُتحققة ${pct(c.confidence)}<br>${esc(c.auto_choice?.why)}<br>التوقيت: ${esc(c.auto_choice?.timing)}<br>التنفيذ: ${esc(JSON.stringify(b.execution || {}))}</div>` : '';
+  table('#auto-table', ['السوق', 'المدة', 'القرار', 'المرشح', 'الثقة', 'العائد المتوقع المتحفظ', 'المصدر', 'السبب الأول'], (b.rows || []).map((r) =>
+    `<tr><td>${esc(r.market_name_ar)} ${r.kind === 'otc' ? badge('', 'OTC') : ''}</td><td>${esc(DUR[r.duration])}</td><td>${badge(r.decision, DEC[r.decision])}</td>
+     <td>${r.candidate ? esc(DEC[r.candidate]) : '—'}</td><td>${pct(r.confidence)}</td><td>${r.edge_lb == null ? '—' : esc(r.edge_lb.toFixed(3))}</td>
+     <td>${esc(SRC[r.data_source] || '—')}</td><td class="small">${esc(r.why)}</td></tr>`));
+}
+$('#auto-on').addEventListener('change', async (e) => {
+  try { await api('/api/execution/config', {method: 'POST', body: {auto_enabled: e.target.checked}}); toast(e.target.checked ? 'AUTO مفعّل' : 'AUTO متوقف'); }
+  catch (err) { toast('خطأ: ' + err.message); e.target.checked = !e.target.checked; }
+});
+
+// ---------------------------------------------------------------- EXECUTION
+const RISK_FIELDS = [['stake', 'مبلغ الصفقة'], ['max_stake', 'الحد الأقصى للمبلغ'], ['max_stake_pct', 'أقصى % من الرصيد'],
+  ['max_daily_loss', 'حد الخسارة اليومي'], ['max_consecutive_losses', 'حد الخسائر المتتالية'], ['max_open', 'أقصى صفقات مفتوحة'],
+  ['max_trades_per_hour', 'أقصى صفقات/ساعة'], ['cooldown_s', 'تهدئة لكل سوق (ث)'], ['min_edge', 'أدنى عائد متوقع متحفظ'],
+  ['max_signal_age_s', 'أقصى عمر للإشارة (ث)'], ['paper_initial_balance', 'رصيد التجريبي الابتدائي']];
+const ORDER_ST = {risk_rejected: 'رفض المخاطر', submitted: 'مُرسل', confirmed: 'مؤكد', rejected: 'رفض الوسيط', settled: 'مُسوّى'};
+function orderRow(o) {
+  return `<tr><td>${esc(o.id)}</td><td>${esc(fmtTime(o.created_at))}</td><td>${o.mode === 'paper' ? 'تجريبي' : esc(o.mode)}</td><td>${esc(o.market)}</td><td>${esc(DUR[o.duration])}</td>
+    <td>${badge(o.direction, DEC[o.direction])}</td><td>${esc(o.stake)}</td><td>${badge(o.status === 'settled' ? o.result : o.status === 'confirmed' ? 'pending' : 'void', ORDER_ST[o.status] || o.status)}</td>
+    <td class="ltr">${esc(num(o.entry_price))} → ${esc(num(o.exit_price))}</td><td>${o.result ? badge(o.result, STATUS[o.result]) : '—'}</td><td>${o.pnl == null ? '—' : esc(o.pnl.toFixed(2))}</td>
+    <td class="small">${esc(o.broker_ref || '')} ${esc(o.reason || '')}</td></tr>`;
+}
+const ORDER_HEAD = ['#', 'الوقت', 'الوضع', 'السوق', 'المدة', 'الاتجاه', 'المبلغ', 'الحالة', 'الدخول → الانتهاء', 'النتيجة', 'الربح/الخسارة', 'مرجع/سبب'];
+async function loadExec() {
+  const [ex, open, all, lg] = await Promise.all([api('/api/execution'), api('/api/orders?status=open'), api('/api/orders?limit=100'), api('/api/execution/log?limit=80')]);
+  $$('#mode-seg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === ex.config.mode));
+  $('#brokers').innerHTML = ex.brokers.map((b) => `<div class="${b.available ? 'okbox' : 'warnbox'}"><b>${b.name === 'paper' ? 'الوسيط التجريبي' : 'ExpertOption (حقيقي)'}:</b> ${esc(b.detail)}${b.terms_url ? ` <a href="${esc(b.terms_url)}" target="_blank" rel="noopener">الشروط</a>` : ''}</div>`).join('');
+  const st = ex.state;
+  $('#exec-state').innerHTML = (st.kill_switch ? '<div class="warnbox">⛔ الإيقاف الطارئ مفعّل</div>' : '') + (st.halted ? `<div class="warnbox">التداول موقوف: ${esc(st.halt_reason)}</div>` : '');
+  if (!$('#risk-form').dataset.filled || document.activeElement?.closest('#risk-form') == null) {
+    $('#risk-form').innerHTML = RISK_FIELDS.map(([k, l]) => `<label>${esc(l)}<input type="number" step="any" min="0" name="${k}" value="${esc(ex.config[k])}"></label>`).join('');
+    $('#risk-form').dataset.filled = '1';
+  }
+  const s2 = ex.stats;
+  $('#exec-stats').innerHTML = [
+    ['رصيد تجريبي', st.paper_balance.toFixed(2), 'ليس مالًا حقيقيًا'],
+    ['صافي الربح/الخسارة', s2.net_pnl, `اليوم ${s2.today_pnl} · أقصى تراجع ${s2.max_drawdown}`],
+    ['نسبة النجاح الفعلية', s2.win_rate == null ? '—' : pct(s2.win_rate), s2.settled ? `${s2.wins} ربح / ${s2.losses} خسارة` : 'لا توجد صفقات مُسوّاة بعد'],
+    ['معامل الربح', s2.profit_factor ?? '—', `خسائر متتالية: ${s2.consecutive_losses} · مفتوحة: ${s2.open}`],
+  ].map(([a, b, c]) => `<div class="stat card"><span>${esc(a)}</span><b>${esc(b)}</b><span>${esc(c)}</span></div>`).join('');
+  table('#open-orders', ORDER_HEAD, open.map(orderRow));
+  table('#closed-orders', ORDER_HEAD, all.filter((o) => !['submitted', 'confirmed'].includes(o.status)).map(orderRow));
+  table('#exec-log', null, lg.map((r) => `<tr><td>${esc(fmtT(r.ts))}</td><td>${esc(r.order_id ?? '—')}</td><td class="ltr">${esc(r.event)}</td><td class="small">${esc(typeof r.detail === 'string' ? r.detail : JSON.stringify(r.detail))}</td></tr>`));
+}
+$$('#mode-seg button').forEach((b) => b.addEventListener('click', async () => {
+  if (b.disabled) return;
+  try { await api('/api/execution/config', {method: 'POST', body: {mode: b.dataset.mode}}); toast('تم تغيير الوضع'); loadExec(); refresh(); } catch (e) { toast('خطأ: ' + e.message); }
+}));
+$('#risk-save').addEventListener('click', async () => {
+  const body = {}; $$('#risk-form input').forEach((i) => { body[i.name] = Number(i.value); });
+  try { await api('/api/execution/config', {method: 'POST', body}); toast('حُفظت إعدادات المخاطر'); $('#risk-form').dataset.filled = ''; loadExec(); } catch (e) { toast('خطأ: ' + e.message); }
+});
+$('#kill').addEventListener('click', async () => { await api('/api/execution/kill', {method: 'POST'}); toast('⛔ تم الإيقاف الطارئ'); loadExec(); refresh(); });
+$('#resume').addEventListener('click', async () => { await api('/api/execution/resume', {method: 'POST'}); toast('تم الاستئناف'); loadExec(); refresh(); });
+$('#reset-paper').addEventListener('click', async () => { await api('/api/execution/reset-paper', {method: 'POST'}); toast('أُعيد رصيد التجريبي'); loadExec(); });
+
 // ---------------------------------------------------------------- boot
 (async () => {
   const me = await api('/api/me'); CSRF = me.csrf;
   await refresh(); loadChart();
   setInterval(refresh, 3000);
+  setInterval(() => { if ($('#v-auto').classList.contains('active')) loadAuto(); if ($('#v-exec').classList.contains('active') && !document.activeElement?.closest('#risk-form')) loadExec(); }, 4000);
   setInterval(() => { if ($('#v-dash').classList.contains('active')) loadChart(); }, 5000);
 })();

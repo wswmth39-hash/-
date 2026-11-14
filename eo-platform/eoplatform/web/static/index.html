@@ -8,12 +8,14 @@
 </head>
 <body>
 <header class="topbar">
-  <div class="brand">منصة التحليل الذكي <small>ExpertOption · محاكاة فقط</small></div>
+  <div class="brand">منصة التحليل الذكي <small>ExpertOption · بلا تداول حقيقي</small></div>
   <div class="pills">
     <span class="pill" id="pill-svc"><span class="dot"></span><span>الخدمات</span></span>
     <span class="pill optional" id="pill-bridge"><span class="dot"></span><span>جسر ExpertOption</span></span>
     <span class="pill optional" id="pill-ref"><span class="dot"></span><span>Binance مرجعي</span></span>
     <span class="pill optional" id="pill-llm"><span class="dot"></span><span>النموذج المحلي</span></span>
+    <span class="pill optional" id="pill-news"><span class="dot"></span><span>الأخبار</span></span>
+    <span class="pill" id="pill-mode"><span class="dot"></span><span id="mode-text">تحليل فقط</span></span>
     <button class="btn ghost" id="theme" title="الوضع الفاتح/الداكن">◐</button>
     <button class="btn ghost" id="logout">خروج</button>
   </div>
@@ -21,6 +23,8 @@
 <div class="layout">
   <nav class="side" id="nav">
     <button data-view="dash" class="active">لوحة التداول</button>
+    <button data-view="auto">أفضل الفرص (AUTO)</button>
+    <button data-view="exec">التنفيذ والمخاطر</button>
     <button data-view="signals">سجل الإشارات</button>
     <button data-view="agents">نشاط الوكلاء</button>
     <button data-view="perf">الأداء والنماذج</button>
@@ -71,6 +75,45 @@
       <div class="card"><h2>آخر الإشارات</h2><div class="tablewrap"><table id="recent"><thead></thead><tbody></tbody></table></div></div>
     </section>
 
+    <!-- AUTO -->
+    <section class="view" id="v-auto">
+      <div class="card">
+        <div class="row"><h2>وضع AUTO — اختيار أفضل فرصة تلقائيًا</h2>
+          <label class="switch"><input type="checkbox" id="auto-on"> تفعيل AUTO</label></div>
+        <p class="small muted">يفحص كل الأسواق ذات البيانات الحية وكل المدد فور إغلاق كل شمعة تحليل، ويقبل فقط قرارات شراء/بيع
+          من نموذج مُتحقق منه، ويرتبها حسب العائد المتوقع المتحفظ (الحد الأدنى للدقة × (1+العائد) − 1). عند عدم وجود فرصة مؤهلة يمتنع ويذكر السبب.
+          التنفيذ يتبع وضع التنفيذ في صفحة «التنفيذ والمخاطر».</p>
+        <div id="auto-why" class="warnbox"></div>
+        <div id="auto-chosen"></div>
+      </div>
+      <div class="card"><h2>آخر لوحة مقارنة <span class="small muted" id="auto-at"></span></h2>
+        <div class="tablewrap"><table id="auto-table"><thead></thead><tbody></tbody></table></div></div>
+    </section>
+
+    <!-- EXECUTION -->
+    <section class="view" id="v-exec">
+      <div class="grid g2">
+        <div class="card">
+          <h2>وضع التنفيذ</h2>
+          <div class="seg" id="mode-seg"><button data-mode="analysis">تحليل فقط</button><button data-mode="paper">تداول تجريبي (ورقي)</button><button data-mode="live" disabled title="غير متاح">حقيقي — غير متاح</button></div>
+          <div id="brokers" class="small"></div>
+          <p></p>
+          <button class="btn danger big" id="kill">⛔ إيقاف طارئ</button>
+          <p></p><button class="btn ghost" id="resume">استئناف بعد الإيقاف</button> <button class="btn ghost" id="reset-paper">إعادة رصيد التجريبي</button>
+          <div id="exec-state" class="small"></div>
+        </div>
+        <div class="card">
+          <h2>إعدادات المخاطر</h2>
+          <form id="risk-form" class="riskgrid"></form>
+          <button class="btn" id="risk-save">حفظ الإعدادات</button>
+        </div>
+      </div>
+      <div class="grid g4" id="exec-stats"></div>
+      <div class="card"><h2>الصفقات المفتوحة</h2><div class="tablewrap"><table id="open-orders"><thead></thead><tbody></tbody></table></div></div>
+      <div class="card"><h2>الصفقات المغلقة والمرفوضة</h2><div class="tablewrap"><table id="closed-orders"><thead></thead><tbody></tbody></table></div></div>
+      <div class="card"><h2>سجل التنفيذ</h2><div class="tablewrap"><table id="exec-log"><thead><tr><th>الوقت</th><th>الأمر</th><th>الحدث</th><th>التفاصيل</th></tr></thead><tbody></tbody></table></div></div>
+    </section>
+
     <!-- SIGNALS -->
     <section class="view" id="v-signals">
       <div class="card">
@@ -116,6 +159,11 @@
     <!-- STATUS -->
     <section class="view" id="v-status">
       <div class="grid g3" id="status-cards"></div>
+      <div class="card"><h2>التحقق من تطابق الأسعار مع المصدر</h2>
+        <p class="small muted">يعيد تنزيل شموع المصدر نفسه لآخر دقيقتين ويقارنها ثانية بثانية بما خزّنته المنصة.</p>
+        <div class="row"><select id="verify-market"></select><button class="btn ghost" id="verify-btn">تحقق الآن</button></div>
+        <div id="verify-out" class="small"></div></div>
+      <div class="card"><h2>الأخبار الاقتصادية القادمة (متوسطة/عالية التأثير)</h2><div class="tablewrap"><table id="news-table"><thead><tr><th>الوقت</th><th>العملة</th><th>الحدث</th><th>التأثير</th><th>المتوقع</th><th>السابق</th></tr></thead><tbody></tbody></table></div></div>
       <div class="card"><h2>الخدمات الخلفية</h2><div class="tablewrap"><table id="svc-table"><thead><tr><th>الخدمة</th><th>الحالة</th><th>إعادات التشغيل</th><th>آخر خطأ</th></tr></thead><tbody></tbody></table></div></div>
       <div class="card"><h2>مصادر البيانات لكل سوق</h2><div class="tablewrap"><table id="src-table"><thead><tr><th>السوق</th><th>المصدر</th><th>الحالة</th><th>العمر (ث)</th><th>مقبول</th><th>مرفوض</th><th>فرق الساعة</th></tr></thead><tbody></tbody></table></div></div>
       <div class="card"><h2>سجل الأحداث</h2><div class="tablewrap"><table id="events"><thead><tr><th>الوقت</th><th>المستوى</th><th>النوع</th><th>الرسالة</th></tr></thead><tbody></tbody></table></div></div>

@@ -8,6 +8,8 @@ const {chromium, devices} = require('playwright');
 const fs = require('fs');
 const path = require('path');
 const [, , SERVER, PASSWORD, TOKEN, OUT, WS_PORT, WS_LOG] = process.argv;
+const MARKET = process.env.MARKET || 'BTCUSD';
+const KIND = MARKET.endsWith('_OTC') ? 'otc' : 'regular';
 
 (async () => {
   // LNA checks block a routed page from reaching the local mock WS; the real bridge never needs this
@@ -25,20 +27,20 @@ const [, , SERVER, PASSWORD, TOKEN, OUT, WS_PORT, WS_LOG] = process.argv;
     await page.fill('#p', PASSWORD);
     await page.click('button[type=submit]');
     await page.waitForURL(SERVER + '/');
-    await page.click('#kind-seg button[data-kind=otc]');
-    await page.selectOption('#market', 'EURUSD_OTC');
+    await page.click(`#kind-seg button[data-kind=${KIND}]`);
+    await page.selectOption('#market', MARKET);
     await page.click('#dur-seg button[data-d="60"]');
     await page.click('#analyze');
     await page.waitForSelector('#r-body dl');
     await page.waitForTimeout(4000);
     const decision = await page.textContent('#r-decision');
     await page.screenshot({path: path.join(OUT, `dashboard_${label}.png`), fullPage: label === 'desktop'});
-    for (const v of ['signals', 'agents', 'perf', 'monitor', 'status', 'settings']) {
+    for (const v of ['auto', 'exec', 'signals', 'agents', 'perf', 'monitor', 'status', 'settings']) {
       await page.click(`#nav button[data-view=${v}]`);
-      await page.waitForTimeout(700);
+      await page.waitForTimeout(1500);
       const txt = await page.textContent(`#v-${v}`);
       if (/undefined|NaN|\[object Object\]/.test(txt)) errors.push(`${label}/${v}: bad text rendered`);
-      if (label === 'desktop' && ['agents', 'perf', 'status'].includes(v)) await page.screenshot({path: path.join(OUT, `view_${v}.png`)});
+      if (['auto', 'exec', 'agents', 'perf', 'status'].includes(v)) await page.screenshot({path: path.join(OUT, `view_${v}_${label}.png`), fullPage: label === 'desktop'});
     }
     // compare with the device viewport: a widened layout viewport also widens innerWidth
     const overflow = await page.evaluate((w) => document.documentElement.scrollWidth > w + 1 || window.innerWidth > w + 1, ctxOpt.viewport.width);
@@ -47,7 +49,8 @@ const [, , SERVER, PASSWORD, TOKEN, OUT, WS_PORT, WS_LOG] = process.argv;
     await ctx.close();
   }
 
-  // ---------------- bridge userscript on a mock platform page
+  // ---------------- bridge userscript on a mock platform page (only when a mock WS port is given)
+  if (!WS_PORT) { await browser.close(); console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'ALL BROWSER CHECKS PASSED (dashboard)'); process.exit(errors.length ? 1 : 0); }
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   const posted = [];

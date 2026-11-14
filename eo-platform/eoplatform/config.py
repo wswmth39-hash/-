@@ -59,7 +59,12 @@ class Settings:
     enable_binance: bool = True
     binance_rest: str = "https://data-api.binance.vision"
     binance_ws: str = "wss://data-stream.binance.vision/ws"
-    bridge_enabled: bool = True
+    bridge_enabled: bool = False   # opt-in: see ExpertOption T&C §6.2 warning in bridge/README.md
+    binance_backfill_hours: float = 24.0
+    news_enabled: bool = True
+    news_url: str = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+    news_window_min: int = 30
+    alert_webhook: str = ""         # optional POST target for alerts (ntfy, Slack-compatible, your own)
     retention_days: int = 30
     # --- freshness thresholds (seconds since last genuine update)
     live_max_age: float = 3.0
@@ -78,6 +83,7 @@ class Settings:
     llm_debate_rounds: int = 1
     llm_risk_rounds: int = 1
     llm_temperature: float = 0.2
+    llm_reasoning: str = "none"     # reasoning_effort sent to the local server ("" = model default)
     # --- monitoring
     monitor_interval: int = 15
     retrain_interval_min: int = 360
@@ -106,7 +112,12 @@ def load_settings(env_file: str | None = None) -> Settings:
         enable_binance=_b("EO_ENABLE_BINANCE", True),
         binance_rest=os.environ.get("EO_BINANCE_REST", "https://data-api.binance.vision"),
         binance_ws=os.environ.get("EO_BINANCE_WS", "wss://data-stream.binance.vision/ws"),
-        bridge_enabled=_b("EO_BRIDGE_ENABLED", True),
+        bridge_enabled=_b("EO_BRIDGE_ENABLED", False),
+        binance_backfill_hours=_f("EO_BINANCE_BACKFILL_HOURS", 24.0),
+        news_enabled=_b("EO_NEWS_ENABLED", True),
+        news_url=os.environ.get("EO_NEWS_URL", "https://nfs.faireconomy.media/ff_calendar_thisweek.json"),
+        news_window_min=_i("EO_NEWS_WINDOW_MIN", 30),
+        alert_webhook=os.environ.get("EO_ALERT_WEBHOOK", ""),
         retention_days=_i("EO_RETENTION_DAYS", 30),
         live_max_age=_f("EO_LIVE_MAX_AGE", 3.0),
         delayed_max_age=_f("EO_DELAYED_MAX_AGE", 10.0),
@@ -122,6 +133,7 @@ def load_settings(env_file: str | None = None) -> Settings:
         llm_debate_rounds=_i("EO_LLM_DEBATE_ROUNDS", 1),
         llm_risk_rounds=_i("EO_LLM_RISK_ROUNDS", 1),
         llm_temperature=_f("EO_LLM_TEMPERATURE", 0.2),
+        llm_reasoning=os.environ.get("EO_LLM_REASONING", "none"),
         monitor_interval=_i("EO_MONITOR_INTERVAL", 15),
         retrain_interval_min=_i("EO_RETRAIN_INTERVAL_MIN", 360),
     )

@@ -19,7 +19,9 @@ def test_deterministic_team_without_llm(env):
     sig = _signal(env)
     out = AgentSystem(LocalLLM(env[0])).run(sig)
     assert out["llm_used"] is False
-    assert set(out["reports"]) == {"technical", "trend", "candles", "price_action", "momentum", "liquidity"}
+    assert set(out["reports"]) == {"technical", "trend", "candles", "price_action", "momentum", "liquidity",
+                                   "support_resistance", "news"}
+    assert out["reports"]["news"]["score"] == 0           # news is risk-only, never a direction
     h = out["investment_debate_state"]["history"]
     assert "Bull Researcher" in h and "Bear Researcher" in h          # debate happened, both sides
     assert out["risk_debate_state"]["count"] == 3                     # aggressive/conservative/neutral
@@ -35,7 +37,7 @@ def test_llm_path_through_tradingagents_client(env, monkeypatch):
     F.H.final_decision = "WAIT"
     out = AgentSystem(LocalLLM(s), 1, 1).run(sig)
     assert out["llm_used"] and out["llm_model"] == "qwen3.5:9b"
-    assert len(F.REQUESTS) == 14 and all(r["model"] == "qwen3.5:9b" for r in F.REQUESTS)
+    assert len(F.REQUESTS) == 16 and all(r["model"] == "qwen3.5:9b" for r in F.REQUESTS)
     assert "<think>" not in out["investment_debate_state"]["history"]   # reasoning stripped
     assert out["final"]["decision"] == "WAIT"
     srv.shutdown()

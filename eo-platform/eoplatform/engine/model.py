@@ -29,6 +29,15 @@ EDGES = [0.0, 0.02, 0.05, 0.08, 0.12, 0.18]
 Z_GATE = 2.64
 
 
+def z_for(family: int) -> float:
+    """Family-wise z: one-sided alpha 0.025 split over len(EDGES) thresholds × ``family``
+    market/duration models trained in the same run (Bonferroni). Measured on real data:
+    1 of 12 models passed the per-model gate with LB 56.3% vs break-even 55.6% — a
+    result that a run of 12 tries produces by chance far too often."""
+    from statistics import NormalDist
+    return max(Z_GATE, NormalDist().inv_cdf(1 - 0.025 / (len(EDGES) * max(1, family))))
+
+
 def wilson_lb(k: int, n: int, z: float = 1.96) -> float:
     if n == 0:
         return 0.0
@@ -85,11 +94,11 @@ def calibration_table(p_up: np.ndarray, y: np.ndarray) -> list[dict]:
     return rows
 
 
-def choose_threshold(table: list[dict], breakeven: float, min_n: int) -> float | None:
+def choose_threshold(table: list[dict], breakeven: float, min_n: int, z: float = Z_GATE) -> float | None:
     """Smallest strength edge whose held-out accuracy is above the payout break-even with
     multiple-comparison-corrected confidence, on enough samples. None = never trade."""
     for row in table:
-        if row["n"] >= min_n and row["acc"] is not None and wilson_lb(row["wins"], row["n"], Z_GATE) > breakeven:
+        if row["n"] >= min_n and row["acc"] is not None and wilson_lb(row["wins"], row["n"], z) > breakeven:
             return row["edge"]
     return None
 
@@ -174,6 +183,20 @@ class Registry:
         self.db.execute("UPDATE models SET status='retired' WHERE market=? AND duration=? AND status='champion'",
                         (row["market"], row["duration"]))
         self.db.execute("UPDATE models SET status='champion', promoted_at=? WHERE id=?", (time.time(), model_id))
+
+    def rollback(self, model_id: int) -> dict:
+        """Re-promote a previously deployed (retired) model. Rejected models can't be promoted."""
+        row = self.db.one("SELECT * FROM models WHERE id=?", (model_id,))
+        if not row:
+            raise KeyError(model_id)
+        meta = json.loads(row["metrics"] or "{}")
+        if row["status"] != "retired" or row["promoted_at"] is None:
+            raise ValueError("only a model that was previously a champion can be restored")
+        if meta.get("threshold") is None:
+            raise ValueError("this model has no validated trading threshold")
+        self.promote(model_id)
+        self.db.event("warning", "model", f"استعادة النموذج #{model_id} ({row['market']} {row['duration']}ث) يدويًا")
+        return row
 
     def demote(self, model_id: int, reason: str) -> None:
         self.db.execute("UPDATE models SET status='retired', note=? WHERE id=?", (reason, model_id))

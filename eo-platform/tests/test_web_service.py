@@ -51,8 +51,15 @@ def test_login_throttling(client):
     assert client.post("/api/login", json={"username": "admin", "password": "correct-horse-1"}).status_code == 401
 
 
+def test_bridge_off_by_default(client):
+    tok = new_token(client.app_ref.state.core.db)
+    r = client.post("/api/bridge/ingest", json={"assets": []}, headers={"Authorization": "Bearer " + tok})
+    assert r.status_code == 403          # opt-in only (ExpertOption T&C §6.2)
+
+
 def test_bridge_ingest_and_analyze(client):
     core = client.app_ref.state.core
+    core.s.bridge_enabled = True
     tok = new_token(core.db)
     assert client.post("/api/bridge/ingest", json={"assets": []}).status_code == 401
     now = time.time()

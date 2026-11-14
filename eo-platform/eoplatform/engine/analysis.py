@@ -18,6 +18,8 @@ AGENTS = {
     "price_action": "وكيل حركة السعر",
     "momentum": "وكيل الزخم",
     "liquidity": "وكيل السيولة",
+    "support_resistance": "وكيل الدعم والمقاومة",
+    "news": "وكيل الأخبار والعوامل المؤثرة",
 }
 
 
@@ -131,24 +133,92 @@ def liquidity(r: dict) -> dict:
     return {"score": _clip(s), "facts": facts, "abnormal": bool(risk)}
 
 
+def support_resistance(c) -> dict:
+    """Levels from clustered swing highs/lows of the last 150 analysis candles.
+    A level's strength = number of distinct touches. Uses only closed candles."""
+    if c is None or len(c) < 30:
+        return {"score": 0.0, "facts": ["بيانات غير كافية لتحديد الدعم والمقاومة"], "levels": []}
+    c = np.asarray(c)[-150:]
+    h, l, cl = c[:, 2], c[:, 3], c[:, 4]
+    atr = float(np.mean(h[-14:] - l[-14:])) or 1e-12
+    swings = [h[i] for i in range(2, len(c) - 2) if h[i] == h[i - 2:i + 3].max()] + \
+             [l[i] for i in range(2, len(c) - 2) if l[i] == l[i - 2:i + 3].min()]
+    levels: list[list[float]] = []
+    for p in sorted(swings):
+        if levels and p - levels[-1][-1] <= 0.3 * atr:
+            levels[-1].append(p)
+        else:
+            levels.append([p])
+    lv = [(float(np.mean(g)), len(g)) for g in levels if len(g) >= 2]
+    price = float(cl[-1])
+    sup = max(((p, n) for p, n in lv if p < price), default=None)
+    res = min(((p, n) for p, n in lv if p > price), default=None)
+    facts, s = [], 0.0
+    if sup:
+        d = (price - sup[0]) / atr
+        facts.append(f"أقرب دعم {sup[0]:.6g} ({sup[1]} لمسات) على بعد {d:.1f} ATR")
+        if d < 0.6:
+            s += 0.15 * min(sup[1], 4)
+    else:
+        facts.append("لا دعم مؤكد تحت السعر")
+    if res:
+        d = (res[0] - price) / atr
+        facts.append(f"أقرب مقاومة {res[0]:.6g} ({res[1]} لمسات) على بعد {d:.1f} ATR")
+        if d < 0.6:
+            s -= 0.15 * min(res[1], 4)
+    else:
+        facts.append("لا مقاومة مؤكدة فوق السعر")
+    prev = float(cl[-2])
+    for p, n in lv:
+        if prev <= p < price:
+            facts.append(f"اختراق مقاومة {p:.6g}"); s += 0.3
+        elif prev >= p > price:
+            facts.append(f"كسر دعم {p:.6g}"); s -= 0.3
+    return {"score": _clip(s), "facts": facts, "levels": [round(p, 8) for p, _ in lv][:12]}
+
+
+def news(market: dict | None, events: list[dict] | None, status: dict | None, now: float) -> dict:
+    """Risk-only: never produces a direction (score is always 0)."""
+    if market is not None and market.get("kind") == "otc":
+        return {"score": 0.0, "facts": ["أسعار OTC تصدرها المنصة ولا تتأثر مباشرة بالأخبار الاقتصادية"],
+                "high_impact_soon": False, "applicable": False}
+    if not status or not status.get("ok"):
+        return {"score": 0.0, "facts": ["تقويم الأخبار غير متاح الآن — لا يمكن استبعاد أخبار قريبة"],
+                "high_impact_soon": False, "applicable": True, "unavailable": True}
+    evs = events or []
+    facts = [f"{e['currency']} {e['title']} ({'عالي' if e['impact']=='High' else 'متوسط'} التأثير) "
+             f"{'بعد' if e['ts']>now else 'قبل'} {abs(e['ts']-now)/60:.0f} د" for e in evs[:4]]
+    high = any(e["impact"] == "High" for e in evs)
+    return {"score": 0.0, "facts": facts or ["لا أخبار متوسطة/عالية التأثير قريبة"], "high_impact_soon": high,
+            "applicable": True}
+
+
 FUNCS = {"technical": technical, "trend": trend, "candles": candles,
          "price_action": price_action, "momentum": momentum, "liquidity": liquidity}
 
 # Equal weights until the learning system measures each specialist (see learning/strategies.py).
-DEFAULT_WEIGHTS = {k: 1.0 for k in FUNCS}
+DEFAULT_WEIGHTS = {**{k: 1.0 for k in FUNCS}, "support_resistance": 1.0, "news": 0.0}
 
 
-def evidence(row: dict) -> dict[str, dict]:
+def evidence(row: dict, candles=None, market: dict | None = None, news_events: list | None = None,
+             news_status: dict | None = None, now: float | None = None) -> dict[str, dict]:
     out = {}
     for k, fn in FUNCS.items():
         e = fn(row)
         e["agent"] = k
         e["name_ar"] = AGENTS[k]
         out[k] = e
+    if candles is not None:
+        out["support_resistance"] = {**support_resistance(candles), "agent": "support_resistance",
+                                     "name_ar": AGENTS["support_resistance"]}
+    if market is not None:
+        import time as _t
+        out["news"] = {**news(market, news_events, news_status, now or _t.time()), "agent": "news",
+                       "name_ar": AGENTS["news"]}
     return out
 
 
 def ensemble(ev: dict[str, dict], weights: dict | None = None) -> float:
     w = weights or DEFAULT_WEIGHTS
-    tot = sum(w.get(k, 0) for k in ev) or 1.0
+    tot = sum(w.get(k, 0) for k in ev) or 1.0  # news has weight 0: it is risk-only
     return float(np.clip(sum(ev[k]["score"] * w.get(k, 0) for k in ev) / tot, -1, 1))

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import time
 
 import httpx
@@ -21,6 +22,10 @@ class LocalLLM:
     def __init__(self, settings: Settings):
         self.s = settings
         self._llm = None
+        # Ollama serves one request at a time on CPU. Analysts run in parallel in the graph, so
+        # without this lock requests queue inside Ollama while the HTTP timeout keeps running
+        # (measured: calls finished at 27…233 s and one timed out in a real run).
+        self._lock = threading.Lock()
         self.last_check: dict = {"ok": False, "detail": "not checked", "at": 0}
 
     @property
@@ -55,10 +60,17 @@ class LocalLLM:
                 temperature=self.s.llm_temperature, timeout=self.s.llm_timeout, max_retries=1,
                 max_tokens=700,
             ).get_llm()
+            if self.s.llm_reasoning:
+                # Qwen 3.5 is a reasoning model. Measured on qwen3.5:9b / Ollama 0.40.16 / 4 CPUs:
+                # default → 264 s and an EMPTY answer (all tokens spent thinking); "think": false is
+                # ignored on /v1; reasoning_effort "none" → 14.9 s with the correct answer.
+                # TradingAgents' client only forwards reasoning_effort for OpenAI models, so bind it here.
+                self._llm = self._llm.bind(extra_body={"reasoning_effort": self.s.llm_reasoning})
         return self._llm
 
     def ask(self, prompt: str) -> str:
-        resp = self._client().invoke(prompt)
+        with self._lock:
+            resp = self._client().invoke(prompt)
         content = resp.content
         if isinstance(content, list):
             content = "\n".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)

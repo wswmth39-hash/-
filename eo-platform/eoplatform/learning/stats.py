@@ -21,7 +21,17 @@ def performance(db: DB, breakeven: float, since: float = 0) -> dict:
     rows = db.all("SELECT id,market,kind,duration,source,decision,candidate,status,trend,data_source,confidence,"
                   "created_at,payload FROM signals WHERE status IN ('win','loss','draw') AND created_at>=?", (since,))
     acted = [r for r in rows if r["decision"] != "WAIT"]
-    out = {"breakeven": breakeven, "overall_signals": _summ(acted), "overall_candidates": _summ(rows),
+    payout = 1 / breakeven - 1
+
+    def ev(summary: dict) -> dict:
+        a = summary.get("accuracy")
+        lb = summary.get("wilson_lb")
+        # expected return per 1 unit staked after payout: win → +payout, loss → −1
+        summary["ev_per_unit"] = round(a * payout - (1 - a), 4) if a is not None else None
+        summary["ev_per_unit_lb"] = round(lb * payout - (1 - lb), 4) if lb is not None else None
+        return summary
+
+    out = {"breakeven": breakeven, "payout": payout, "overall_signals": ev(_summ(acted)), "overall_candidates": _summ(rows),
            "by_market_duration": [], "by_source": [], "void": db.one(
                "SELECT count(*) n FROM signals WHERE status='void' AND created_at>=?", (since,))["n"],
            "pending": db.one("SELECT count(*) n FROM signals WHERE status='pending'")["n"]}
@@ -31,7 +41,7 @@ def performance(db: DB, breakeven: float, since: float = 0) -> dict:
     for (m, d, src), rs in sorted(groups.items()):
         a = [r for r in rs if r["decision"] != "WAIT"]
         out["by_market_duration"].append({"market": m, "duration": d, "engine": src,
-                                          "signals": _summ(a), "candidates": _summ(rs)})
+                                          "signals": ev(_summ(a)), "candidates": ev(_summ(rs))})
     sg = defaultdict(list)
     for r in rows:
         sg[r["source"]].append(r)

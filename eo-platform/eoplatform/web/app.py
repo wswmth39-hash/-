@@ -159,6 +159,10 @@ def create_app(settings: Settings, start_services: bool = True) -> FastAPI:
             "require_validated_model": settings.require_validated_model,
             "signals": _signals(limit=15), "agents": core.agent_activity[:10],
             "unknown_bridge_assets": core.db.kv_get("bridge_unknown_assets", []),
+            "bridge_enabled": settings.bridge_enabled,
+            "auto": {k: core.auto.board.get(k) for k in ("at", "why", "chosen", "evaluated")},
+            "execution": {"mode": core.execution.config()["mode"], "auto_enabled": core.execution.config()["auto_enabled"],
+                          **core.execution.state()},
         }
 
     # ------------------------------------------------------------------ analysis
@@ -273,6 +277,82 @@ def create_app(settings: Settings, start_services: bool = True) -> FastAPI:
     @app.get("/api/health")
     async def health(u=Depends(user)):
         return core.health()
+
+    # ------------------------------------------------------------------ AUTO mode & execution
+    @app.get("/api/auto/board")
+    async def auto_board(u=Depends(user)):
+        return core.auto.board
+
+    @app.get("/api/execution")
+    async def execution_state(u=Depends(user)):
+        ex = core.execution
+        return {"config": ex.config(), "state": ex.state(), "stats": ex.stats(), "brokers": ex.brokers(),
+                "payout": settings.payout}
+
+    @app.post("/api/execution/config")
+    async def execution_config(request: Request, u=Depends(user)):
+        try:
+            return core.execution.set_config(await request.json())
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+
+    @app.post("/api/execution/kill")
+    async def kill(u=Depends(user)):
+        return core.execution.kill("زر الإيقاف الطارئ من لوحة التحكم")
+
+    @app.post("/api/execution/resume")
+    async def resume(u=Depends(user)):
+        return core.execution.resume()
+
+    @app.post("/api/execution/reset-paper")
+    async def reset_paper(u=Depends(user)):
+        return core.execution.reset_paper_balance()
+
+    @app.get("/api/orders")
+    async def orders(limit: int = 100, status: str | None = None, u=Depends(user)):
+        q, p = "SELECT * FROM orders", []
+        if status == "open":
+            q += " WHERE status IN ('submitted','confirmed')"
+        elif status:
+            q += " WHERE status=?"; p.append(status)
+        return core.db.all(q + " ORDER BY id DESC LIMIT ?", [*p, min(limit, 500)])
+
+    @app.get("/api/execution/log")
+    async def exec_log(limit: int = 100, u=Depends(user)):
+        rows = core.db.all("SELECT * FROM execution_log ORDER BY id DESC LIMIT ?", (min(limit, 500),))
+        for r in rows:
+            r["detail"] = json.loads(r["detail"]) if r["detail"] else None
+        return rows
+
+    @app.post("/api/models/{mid}/rollback")
+    async def rollback(mid: int, u=Depends(user)):
+        try:
+            core.registry.rollback(mid)
+        except KeyError:
+            raise HTTPException(404) from None
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        return {"ok": True}
+
+    @app.get("/api/news")
+    async def news(u=Depends(user)):
+        if core.news is None:
+            return {"status": {"ok": False, "error": "disabled"}, "upcoming": []}
+        now = time.time()
+        return {"status": core.news.status(),
+                "upcoming": [e for e in core.news.events if now - 3600 <= e["ts"] <= now + 86400
+                             and e["impact"] in ("High", "Medium")][:40]}
+
+    @app.get("/api/verify/{market}")
+    async def verify(market: str, seconds: int = 120, u=Depends(user)):
+        """Re-download the reference source's own klines and compare them second-by-second
+        with what we stored. A real end-to-end check that our prices match the source."""
+        from ..data.verify import verify_binance
+        m = get_market(core.db, market)
+        if not m or not m.get("reference_symbol") or m["kind"] != "regular":
+            raise HTTPException(400, "verification is available for regular markets with a reference feed")
+        return await asyncio.get_running_loop().run_in_executor(
+            core.pool, verify_binance, core.db, settings.binance_rest, m, min(max(seconds, 30), 900))
 
     # ------------------------------------------------------------------ bridge
     @app.get("/api/bridge/tokens")
