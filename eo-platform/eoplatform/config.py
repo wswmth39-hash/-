@@ -83,6 +83,8 @@ class Settings:
     llm_debate_rounds: int = 1
     llm_risk_rounds: int = 1
     llm_temperature: float = 0.2
+    llm_profile: str = "fast"       # fast | full (see agents/graph.py)
+    llm_keep_alive: str = "60m"
     llm_reasoning: str = "none"     # reasoning_effort sent to the local server ("" = model default)
     # --- monitoring
     monitor_interval: int = 15
@@ -134,6 +136,8 @@ def load_settings(env_file: str | None = None) -> Settings:
         llm_risk_rounds=_i("EO_LLM_RISK_ROUNDS", 1),
         llm_temperature=_f("EO_LLM_TEMPERATURE", 0.2),
         llm_reasoning=os.environ.get("EO_LLM_REASONING", "none"),
+        llm_profile=os.environ.get("EO_LLM_PROFILE", "fast"),
+        llm_keep_alive=os.environ.get("EO_LLM_KEEP_ALIVE", "60m"),
         monitor_interval=_i("EO_MONITOR_INTERVAL", 15),
         retrain_interval_min=_i("EO_RETRAIN_INTERVAL_MIN", 360),
     )

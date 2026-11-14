@@ -35,7 +35,11 @@ from .llm import LocalLLM
 
 log = logging.getLogger("eo.agents")
 
-LANG = "Write every text field in Arabic. Be concise (max 60 words per field). Use only the facts given."
+LANG = "Arabic text, at most 35 words per field. Use only the facts in the shared context."
+
+# Per-role output budgets (tokens). Measured on qwen3.5:9b / 4 CPUs: generation ~4.1 tok/s,
+# new-prompt processing ~42 tok/s, cached prefix ~0.5 s — so output length dominates cost.
+BUDGET = {"analyst": 90, "researcher": 110, "manager": 100, "risk_debater": 70, "risk": 100, "final": 70}
 
 
 def _merge(a: dict, b: dict) -> dict:
@@ -66,8 +70,13 @@ def _fmt_facts(e: dict) -> str:
 
 
 class AgentSystem:
-    def __init__(self, llm: LocalLLM | None, debate_rounds: int = 1, risk_rounds: int = 1):
+    def __init__(self, llm: LocalLLM | None, debate_rounds: int = 1, risk_rounds: int = 1, profile: str = "fast"):
+        """profile 'fast': LLM only where language reasoning adds something (debate, judgement, risk
+        summary, final call); analysts and risk debaters stay deterministic (their facts are exact
+        numbers already). 'full': every node calls the LLM, as in original TradingAgents."""
         self.llm = llm
+        self.profile = profile
+        self._shared_block = ""
         self.logic = ConditionalLogic(max_debate_rounds=max(1, debate_rounds),
                                       max_risk_discuss_rounds=max(1, risk_rounds))
         self.risk_rounds = risk_rounds
@@ -75,12 +84,20 @@ class AgentSystem:
         self.graph = self._build()
 
     # ------------------------------------------------------------------ helpers
-    def _llm_json(self, state: EOAgentState, who: str, prompt: str) -> tuple[dict | None, list]:
+    def _llm_json(self, state: EOAgentState, who: str, prompt: str, role: str = "manager",
+                  full_only: bool = False) -> tuple[dict | None, list]:
         if not self.use_llm:
             return None, []
+        if full_only and self.profile != "full":
+            return None, [{"agent": who, "llm": False, "skipped": "deterministic in fast profile"}]
         t = time.time()
         try:
-            out = self.llm.ask_json(prompt + "\n" + LANG)
+            # Shared block first and byte-identical across the run. NOTE (measured): Ollama 0.40.16 did not
+            # reuse a common prefix for qwen3.5 (cached_tokens=0 with different suffixes; only identical
+            # prompts hit the cache), so this ordering is kept only because it is free and helps on
+            # servers/models that do support prefix caching.
+            out = self.llm.ask_json(self._shared_block + "\n---\n" + prompt + "\n" + LANG,
+                                    max_tokens=BUDGET.get(role), role=who)
             return out, [{"agent": who, "llm": True, "secs": round(time.time() - t, 1)}]
         except Exception as e:
             # Circuit breaker: one failure (usually a timeout) switches the rest of this run to
@@ -91,11 +108,21 @@ class AgentSystem:
             return None, [{"agent": who, "llm": False, "error": f"{type(e).__name__}: {e}"[:200]}]
 
     def _ctx(self, s: EOAgentState) -> str:
+        return ""   # market context lives in the shared block (cached prefix)
+
+    @staticmethod
+    def shared_block(s: dict) -> str:
+        """Compact, deterministic context shared by every prompt of one run."""
         f = s.get("fast", {})
-        return (f"Market: {s['market_name']} ({'OTC' if s['kind']=='otc' else 'regular'}), binary option duration "
-                f"{s['duration']}s. Data source: {s['data_source']} ({s['data_state']}). Fast engine: decision "
-                f"{f.get('decision')}, candidate {f.get('candidate')}, model prob_up {f.get('prob')}, "
-                f"validated={f.get('validated')}.")
+        # Token cost measured with qwen3.5:9b's tokenizer: 3 facts/analyst = 405 tokens, 2 facts capped at
+        # 70 chars = 355. Prompt processing runs ~42 tok/s on 4 CPUs, so every token matters.
+        lines = [f"SHARED CONTEXT. {s['market_name']} ({'OTC' if s['kind'] == 'otc' else 'regular'}) {s['duration']}s, "
+                 f"{s['data_source']}/{s['data_state']}; fast engine {f.get('decision')} (cand {f.get('candidate')}, "
+                 f"p_up {f.get('prob')}, validated {f.get('validated')}).", "Facts (score -1..+1):"]
+        for k, e in (s.get("evidence") or {}).items():
+            lines.append(f"- {AGENTS.get(k, k)} {e.get('score', 0):+.2f}: "
+                         + "؛ ".join(x[:70] for x in e.get("facts", [])[:2]))
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------ analysts
     def _analyst(self, key: str):
@@ -107,9 +134,9 @@ class AgentSystem:
                    "stance": "bullish" if e["score"] > 0.1 else "bearish" if e["score"] < -0.1 else "neutral",
                    "summary": f"{name}: " + _fmt_facts(e), "llm": False}
             out, lg = self._llm_json(s, name, (
-                f"You are the {key.replace('_', ' ')} specialist in a trading team. {self._ctx(s)}\n"
-                f"Your measured facts: {_fmt_facts(e)}. Deterministic score {e['score']:+.2f} (-1 bearish..+1 bullish).\n"
-                'Return {"stance":"bullish|bearish|neutral","summary":"...","key_risk":"..."}'))
+                f"Role: {key.replace('_', ' ')} specialist. Interpret YOUR line ({name}) only.\n"
+                'Return {"stance":"bullish|bearish|neutral","summary":"...","key_risk":"..."}'),
+                role="analyst", full_only=True)
             if out:
                 rep.update(llm=True, summary=str(out.get("summary", rep["summary"]))[:600],
                            key_risk=str(out.get("key_risk", ""))[:300],
@@ -134,11 +161,9 @@ class AgentSystem:
                     " | ".join(r["summary"] for r in pro)[:700] +
                     (f". أضعف حجج الطرف الآخر: {con[0]['name_ar']} قراءته ضعيفة ({con[0]['score']:+.2f})." if con else ""))
             out, lg = self._llm_json(s, f"{label} Researcher", (
-                f"You are the {label}ish researcher in a debate. {self._ctx(s)}\n"
-                f"Analyst reports: {json.dumps([{k: r[k] for k in ('name_ar','score','summary')} for r in reps], ensure_ascii=False)}\n"
-                f"Opponent's last argument: {st.get('current_response') or 'none yet'}\n"
-                f"Argue the {'BUY' if side=='bull' else 'SELL'} case using only these facts and rebut the opponent. "
-                'Return {"argument":"...","strength":0..1}'))
+                f"Role: {label}ish researcher. Argue the {'BUY' if side=='bull' else 'SELL'} case from the facts and "
+                f"rebut the opponent.\nOpponent: {(st.get('current_response') or 'none yet')[:400]}\n"
+                'Return {"argument":"...","strength":0..1}'), role="researcher")
             if out:
                 text = f"{label} Researcher: {str(out.get('argument', ''))[:900]}"
             st.update(history=st.get("history", "") + "\n" + text,
@@ -158,9 +183,9 @@ class AgentSystem:
         res = {"lean": lean, "net_score": round(net, 3), "agree": agree, "oppose": oppose, "llm": False,
                "summary": f"صافي الأدلة {net:+.2f}؛ {agree} يؤيد و{oppose} يعارض ⇒ {lean}"}
         out, lg = self._llm_json(s, "Research Manager", (
-            f"You judge a bull/bear debate. {self._ctx(s)}\nDebate:\n{s['investment_debate_state'].get('history','')[-3000:]}\n"
+            f"Role: judge of the debate.\nDebate:\n{s['investment_debate_state'].get('history','')[-1200:]}\n"
             f"Numeric net evidence {net:+.2f} ({agree} agree, {oppose} oppose).\n"
-            'Return {"lean":"BUY|SELL|NEUTRAL","summary":"..."}'))
+            'Return {"lean":"BUY|SELL|NEUTRAL","summary":"..."}'), role="manager")
         if out:
             res.update(llm=True, llm_lean=str(out.get("lean", "")).upper(), summary=str(out.get("summary", ""))[:600])
         return {"research": res, "risk_debate_state": RiskDebateState(
@@ -177,9 +202,9 @@ class AgentSystem:
                        "Neutral": "المحايد: يُدخل فقط إن كانت البيانات حية والنموذج مُتحقق منه."}[who]
             text = f"{who} Analyst: {default}"
             out, lg = self._llm_json(s, f"{who} Risk Analyst", (
-                f"You are the {who.lower()} risk analyst. {self._ctx(s)}\nResearch verdict: {r['summary']}\n"
-                f"Risk discussion so far: {st.get('history','')[-1500:]}\n"
-                'Return {"argument":"..."}'))
+                f"Role: {who.lower()} risk analyst — argue from a {who.lower()} risk appetite.\n"
+                f"Research verdict: {r['summary'][:300]}\nDiscussion so far: {st.get('history','')[-600:]}\n"
+                'Return {"argument":"..."}'), role="risk_debater", full_only=True)
             if out:
                 text = f"{who} Analyst: {str(out.get('argument', ''))[:600]}"
             st.update(history=st.get("history", "") + "\n" + text, latest_speaker=who, count=st.get("count", 0) + 1)
@@ -217,10 +242,10 @@ class AgentSystem:
         risk = {"level": level, "vetoes": vetoes, "warnings": warnings, "llm": False,
                 "summary": "؛ ".join(vetoes + warnings) or "لا موانع"}
         out, lg = self._llm_json(s, "Risk Management Agent", (
-            f"You are the risk manager. {self._ctx(s)}\nResearch: {r['summary']}\n"
-            f"Risk debate: {s.get('risk_debate_state', {}).get('history', '')[-2000:]}\n"
+            f"Role: risk manager.\nResearch: {r['summary'][:300]}\n"
+            f"Risk debate: {s.get('risk_debate_state', {}).get('history', '')[-600:]}\n"
             f"Hard vetoes already found: {vetoes or 'none'}. Warnings: {warnings or 'none'}.\n"
-            'Return {"summary":"...","extra_veto":"" }  (extra_veto non-empty only for a concrete risk in the facts)'))
+            'Return {"summary":"...","extra_veto":""} (extra_veto only for a concrete risk in the facts)'), role="risk")
         if out:
             risk.update(llm=True, summary=str(out.get("summary", risk["summary"]))[:600])
             ev = str(out.get("extra_veto") or "").strip()
@@ -236,10 +261,14 @@ class AgentSystem:
                   else "انتظار: " + (risk["summary"] or "لا أفضلية"))
         final = {"decision": decision, "candidate": r["lean"] if r["lean"] in ("BUY", "SELL") else None,
                  "reason": reason, "llm": False, "guarded": False}
+        if decision == "WAIT" and (risk["vetoes"] or r["lean"] not in ("BUY", "SELL")):
+            # The guard below would force WAIT whatever the model says: don't spend ~15 s asking.
+            final["reason"] += " (لم يُستدعَ النموذج اللغوي: النتيجة محسومة بموانع المخاطر)"
+            return {"final": final, "log": [{"agent": "Final Decision Agent", "llm": False, "skipped": "outcome forced"}]}
         out, lg = self._llm_json(s, "Final Decision Agent", (
-            f"You make the final call. {self._ctx(s)}\nResearch verdict: {r['summary']} (lean {r['lean']}).\n"
-            f"Risk: {risk['summary']} (vetoes: {risk['vetoes'] or 'none'}).\n"
-            'Return {"decision":"BUY|SELL|WAIT","reason":"..."}. Prefer WAIT when in doubt.'))
+            f"Role: final decision.\nResearch verdict: {r['summary'][:300]} (lean {r['lean']}).\n"
+            f"Risk: {risk['summary'][:300]} (vetoes: {risk['vetoes'] or 'none'}).\n"
+            'Return {"decision":"BUY|SELL|WAIT","reason":"..."}. Prefer WAIT when in doubt.'), role="final")
         if out:
             d = str(out.get("decision", "WAIT")).upper()
             d = d if d in ("BUY", "SELL", "WAIT") else "WAIT"
@@ -300,6 +329,7 @@ class AgentSystem:
             "investment_debate_state": InvestDebateState(bull_history="", bear_history="", history="",
                                                          current_response="", count=0),
         }
+        self._shared_block = self.shared_block(init)
         out = self.graph.invoke(init, {"recursion_limit": 60})
         out["elapsed"] = round(time.time() - t, 2)
         out["llm_used"] = self.use_llm or self.llm_failed

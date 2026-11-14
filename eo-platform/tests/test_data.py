@@ -88,3 +88,35 @@ def test_bridge_token_and_market_resolution(env):
     assert r["accepted"] == 1 and r["unknown_assets"] == ["MYSTERY"]
     assert get_market(db, "EURUSD_OTC")["catalog_verified"] == 1
     assert db.kv_get("bridge_unknown_assets") == ["MYSTERY"]
+
+
+def test_news_cache_survives_restart_and_backs_off_on_429(env, monkeypatch):
+    import httpx
+
+    from eoplatform.data.providers.news import NewsCalendar
+    _, db, _, _ = env
+    calls = []
+
+    class R:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [{"title": "CPI", "country": "USD", "date": "2026-11-14T13:30:00+00:00", "impact": "High"}]
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: calls.append(1) or R())
+    n1 = NewsCalendar("http://x", db=db)
+    n1.refresh()
+    assert len(calls) == 1 and n1.status()["ok"]
+    n2 = NewsCalendar("http://x", db=db)            # "restart": no new download, cached copy used
+    n2.refresh()
+    assert len(calls) == 1 and n2.events and n2.status()["ok"]
+
+    def r429(*a, **k):
+        resp = httpx.Response(429, request=httpx.Request("GET", "http://x"))
+        raise httpx.HTTPStatusError("429", request=resp.request, response=resp)
+    monkeypatch.setattr(httpx, "get", r429)
+    n2.refresh(force=True)
+    assert "429" in n2.error and n2.status()["ok"]   # last good copy still served
+    assert n2.fetched_at > time.time() - n2.refresh_s + 1700   # backs off ~30 min

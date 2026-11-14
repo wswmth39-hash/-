@@ -24,43 +24,52 @@ def _shift(x: np.ndarray, k: int) -> np.ndarray:
     return out
 
 
-def _rolling(x: np.ndarray, w: int, minp: int, fn) -> np.ndarray:
-    """pandas-like rolling with NaN-skipping reducer and a min_periods count."""
-    n = len(x)
-    out = np.full(n, np.nan)
-    if n == 0:
-        return out
+def _windows(x: np.ndarray, w: int):
     pad = np.concatenate([np.full(w - 1, np.nan), x])
     win = _swv(pad, w)
-    cnt = np.sum(~np.isnan(win), axis=1)
-    with np.errstate(all="ignore"):
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            val = fn(win, axis=1)
-    ok = cnt >= minp
+    valid = ~np.isnan(win)
+    return win, valid, valid.sum(axis=1)
+
+
+def _finish(val: np.ndarray, cnt: np.ndarray, minp: int) -> np.ndarray:
+    out = np.full(len(val), np.nan)
+    ok = cnt >= max(minp, 1)
     out[ok] = val[ok]
     return out
 
 
+# NaN-aware rolling reducers written without np.nan* calls: those emit "Mean of empty slice"
+# warnings, and suppressing them with warnings.catch_warnings() is not thread-safe (seen in the
+# concurrency test).
 def _rmean(x, w, minp=None):
-    return _rolling(x, w, w if minp is None else minp, np.nanmean)
+    win, valid, cnt = _windows(x, w)
+    s = np.where(valid, win, 0.0).sum(axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return _finish(s / cnt, cnt, w if minp is None else minp)
 
 
 def _rmax(x, w, minp=None):
-    return _rolling(x, w, w if minp is None else minp, np.nanmax)
+    win, valid, cnt = _windows(x, w)
+    return _finish(np.where(valid, win, -np.inf).max(axis=1), cnt, w if minp is None else minp)
 
 
 def _rmin(x, w, minp=None):
-    return _rolling(x, w, w if minp is None else minp, np.nanmin)
+    win, valid, cnt = _windows(x, w)
+    return _finish(np.where(valid, win, np.inf).min(axis=1), cnt, w if minp is None else minp)
 
 
 def _rstd0(x, w):
-    return _rolling(x, w, w, lambda a, axis: np.nanstd(a, axis=axis, ddof=0))
+    win, valid, cnt = _windows(x, w)
+    z = np.where(valid, win, 0.0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        mean = z.sum(axis=1) / cnt
+        var = (np.where(valid, (win - mean[:, None]) ** 2, 0.0)).sum(axis=1) / cnt
+    return _finish(np.sqrt(var), cnt, w)
 
 
 def _rsum(x, w):
-    return _rolling(x, w, w, np.nansum)
+    win, valid, cnt = _windows(x, w)
+    return _finish(np.where(valid, win, 0.0).sum(axis=1), cnt, w)
 
 
 def _ewm(x: np.ndarray, alpha: float, minp: int = 0) -> np.ndarray:

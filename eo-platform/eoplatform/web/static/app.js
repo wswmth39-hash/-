@@ -38,7 +38,7 @@ function table(el, head, rows) {
 $$('#nav button').forEach((b) => b.addEventListener('click', () => {
   $$('#nav button').forEach((x) => x.classList.toggle('active', x === b));
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === 'v-' + b.dataset.view));
-  ({auto: loadAuto, exec: loadExec, signals: loadSignals, agents: loadAgents, perf: loadPerf, monitor: loadMonitor, status: loadStatus, settings: loadSettings}[b.dataset.view] || (() => {}))(true);
+  ({intel: loadIntel, auto: loadAuto, exec: loadExec, signals: loadSignals, agents: loadAgents, perf: loadPerf, monitor: loadMonitor, status: loadStatus, settings: loadSettings}[b.dataset.view] || (() => {}))(true);
 }));
 $('#theme').addEventListener('click', () => {
   const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
@@ -109,7 +109,8 @@ function renderResult(s, agent) {
     <dt>المدة</dt><dd>${esc(DUR[s.duration])}</dd>
     <dt>الوقت</dt><dd>${esc(fmtT(s.timestamp))}</dd>
     <dt>الثقة</dt><dd>${conf}</dd>
-    <dt>اتجاه السوق</dt><dd>${esc(s.trend || '—')}</dd>
+    <dt>اتجاه السوق</dt><dd>${esc(s.trend || '—')} ${s.regime_ar ? '· ' + esc(s.regime_ar) : ''}</dd>
+    <dt>فئة الإشارة</dt><dd>${s.signal_class_ar ? esc(s.signal_class_ar) : '—'} ${s.quality_score != null ? `· جودة ${esc(s.quality_score)}/100 <span class="muted small">(مؤشر تجريبي، ليس احتمالًا)</span>` : ''}</dd>
     <dt>حداثة البيانات</dt><dd>${dot(st[1])} ${esc(st[0])} · عمر آخر تحديث ${esc(s.data_age ?? '—')} ث · ${esc(SRC[s.data_source] || 'لا مصدر')}</dd>
     <dt>سعر الدخول</dt><dd class="ltr">${esc(num(s.entry_price))}</dd>
     <dt>زمن التحليل</dt><dd>${esc(s.latency_ms ?? '—')} مللي ثانية · ${s.source === 'agents' ? 'فريق الوكلاء' : 'المحرك السريع'}</dd>
@@ -376,6 +377,48 @@ $('#verify-btn').addEventListener('click', async () => {
   } catch (e) { out.innerHTML = `<div class="warnbox">${esc(e.message)}</div>`; }
 });
 
+// ---------------------------------------------------------------- SYSTEM & INTELLIGENCE
+const LAT = [['data_to_signal_ms', 'وصول البيانات ← الإشارة', 'ms'], ['fast_analysis_ms', 'التحليل السريع', 'ms'],
+  ['auto_decision_ms', 'قرار AUTO عبر الأسواق', 'ms'], ['agent_run_s', 'تشغيل فريق الوكلاء', 's'],
+  ['llm_call_s', 'استدعاء Qwen واحد', 's'], ['llm_out_tokens', 'رموز مُخرجة/استدعاء', ''],
+  ['candle_close_to_decision_ms', 'إغلاق الشمعة ← القرار', 'ms'], ['llm_keepalive_load_s', 'تحميل النموذج (keep-alive)', 's']];
+async function loadIntel() {
+  const [mx, models, rs, ag, perf] = await Promise.all([api('/api/metrics?window=3600'), api('/api/models'), api('/api/research'),
+    api('/api/agents'), api('/api/performance')]);
+  const S = mx.series || {};
+  $('#lat-cards').innerHTML = LAT.map(([k, label, u]) => {
+    const v = S[k];
+    return `<div class="stat"><span>${esc(label)}</span><b>${v ? esc(v.p50) + ' ' + u : '—'}</b><span>${v ? `p95 ${esc(v.p95)} · الأقصى ${esc(v.max)} · n=${esc(v.n)}` : 'لا قياسات بعد'}</span></div>`;
+  }).join('');
+  const C = mx.counters || {};
+  const dec = ['BUY', 'SELL', 'WAIT'].map((d) => [d, C['decision_' + d] || 0]);
+  const tot = dec.reduce((a, b) => a + b[1], 0) || 1;
+  const classes = Object.entries(C).filter(([k]) => k.startsWith('class_')).sort((a, b) => b[1] - a[1]);
+  $('#dist').innerHTML = dec.map(([d, n]) => `<div class="row">${badge(d, DEC[d])} <div class="bar grow"><i data-pct="${Math.round(n / tot * 100)}"></i></div> ${esc(n)} (${pct(n / tot)})</div>`).join('') +
+    `<h3>فئات الإشارة</h3>` + (classes.map(([k, n]) => `<span class="pill">${esc(k.slice(6))}: ${esc(n)}</span>`).join(' ') || '<span class="muted">—</span>') +
+    `<p class="small muted">مخبأ المؤشرات: ${esc(mx.feature_cache?.hits ?? 0)} إصابة / ${esc(mx.feature_cache?.misses ?? 0)} حساب · إشارات مكررة مُنعت: ${esc(C.duplicate_signals_suppressed || 0)}</p>`;
+  $$('#dist i[data-pct]').forEach((i) => { i.style.width = i.dataset.pct + '%'; i.style.background = 'var(--accent)'; });
+  const champs = models.models.filter((m) => m.status === 'champion');
+  table('#active-models', ['السوق', 'المدة', 'المواصفة', 'الحالة', 'دقة الاختبار', 'العتبة'], champs.map((m) =>
+    `<tr><td>${esc(m.market)}</td><td>${esc(DUR[m.duration])}</td><td class="ltr">${esc(m.metrics.spec || 'base')}</td><td>${badge('win', 'مُتحقق ✓')}</td><td>${pct(m.metrics.test_accuracy)}</td><td>${esc(m.metrics.threshold)}</td></tr>`));
+  if (!champs.length) $('#active-models tbody').innerHTML = '<tr><td colspan="6" class="muted">لا يوجد نموذج نشط: لم يجتز أي نموذج كل بوابات التحقق الإحصائي على البيانات الحقيقية — لذلك القرار «انتظار».</td></tr>';
+  const st = rs.status || {}, last = rs.last;
+  $('#research-status').innerHTML = `الحالة: <b>${esc(st.state === 'running' ? 'تعمل' : 'متوقفة')}</b> · ${esc(st.stage || '—')} · آخر تحديث ${esc(fmtT(st.updated))}`;
+  $('#research-bar').style.width = Math.round((st.progress || 0) * 100) + '%'; $('#research-bar').style.background = 'var(--accent)';
+  $('#research-last').innerHTML = last ? `<p>آخر دورة: ${esc(fmtT(last.finished))} · ${esc(last.results.length)} اختبار · حجم العائلة للتصحيح الإحصائي ${esc(last.family_size)} · ترقيات: <b>${esc(last.promoted.length)}</b></p>
+    <p>الفرضيات: ${last.hypotheses.map((h) => `<span class="pill ltr">${esc(h.spec)}</span> ${esc(h.why)}`).join('<br>')}</p>
+    <p>Qwen: ${last.llm.used ? `اقترح ${esc(JSON.stringify(last.llm.accepted))} في ${esc(last.llm.secs)} ث` : esc(last.llm.reason || 'لم يُستخدم')}</p>` : 'لم تكتمل أي دورة بعد.';
+  const groups = [['جودة', perf.by_quality], ['فئة', perf.by_class], ['حالة السوق', perf.by_regime]];
+  table('#quality-table', ['البُعد', 'المجموعة', 'الدقة', 'العدد', 'الحالة'], groups.flatMap(([dim, rows]) => (rows || []).map((r) =>
+    `<tr><td>${esc(dim)}</td><td class="ltr">${esc(r.group)}</td><td>${pct(r.accuracy)}</td><td>${esc(r.n)}</td><td>${r.verified ? badge('win', 'مُتحقق') : badge('pending', 'تجريبي')}</td></tr>`)));
+  $('#llm-profile').textContent = `الملف: ${ag.profile} · ${ag.llm.detail}`;
+  table('#llm-calls', ['الوقت', 'الدور', 'المدة (ث)', 'انتظار (ث)', 'رموز داخلة', 'رموز خارجة', 'رمز/ث'], (ag.llm_calls || []).map((c) =>
+    `<tr><td>${esc(fmtTime(c.at))}</td><td>${esc(c.role)}</td><td>${esc(c.secs)}</td><td>${esc(c.queued_s)}</td><td>${esc(c.in_tokens ?? '—')}</td><td>${esc(c.out_tokens ?? '—')}</td><td>${esc(c.out_tok_per_s ?? '—')}</td></tr>`));
+}
+$('#research-run').addEventListener('click', async () => {
+  try { await api('/api/retrain', {method: 'POST'}); toast('بدأت دورة البحث في الخلفية'); setTimeout(loadIntel, 1500); } catch (e) { toast('خطأ: ' + e.message); }
+});
+
 // ---------------------------------------------------------------- AUTO
 async function loadAuto() {
   const [b, ex] = await Promise.all([api('/api/auto/board'), api('/api/execution')]);
@@ -445,6 +488,7 @@ $('#reset-paper').addEventListener('click', async () => { await api('/api/execut
   const me = await api('/api/me'); CSRF = me.csrf;
   await refresh(); loadChart();
   setInterval(refresh, 3000);
+  setInterval(() => { if ($('#v-intel').classList.contains('active')) loadIntel(); }, 5000);
   setInterval(() => { if ($('#v-auto').classList.contains('active')) loadAuto(); if ($('#v-exec').classList.contains('active') && !document.activeElement?.closest('#risk-form')) loadExec(); }, 4000);
   setInterval(() => { if ($('#v-dash').classList.contains('active')) loadChart(); }, 5000);
 })();

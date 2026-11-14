@@ -85,19 +85,29 @@ def run_cycle(core, use_llm: bool = True) -> dict:
               "rejections": Counter(str(r.get("note", ""))[:60] for r in (last or {}).get("results", [])).most_common(5)}
 
     _status(db, stage="4/9 توليد الفرضيات")
-    hyps = rule_hypotheses(last, perf)
-    llm_info = {"used": False}
+    rule = rule_hypotheses(last, perf)
+    llm_info, extra = {"used": False}, []
     if use_llm:
         summary = {"published_signals": perf["overall_signals"], "candidates": perf["overall_candidates"],
-                   "errors": errors, "rule_hypotheses": [h[0] for h in hyps]}
+                   "errors": errors, "rule_hypotheses": [h[0] for h in rule]}
         extra, llm_info = llm_hypotheses(core.llm, summary)
-        hyps += extra
+    # Slot order: the permanent 'base' comparison, then ONE LLM proposal not already covered (so
+    # Qwen's suggestion is actually tested — found in production that rule hypotheses filled every
+    # slot), then rule hypotheses, capped at MAX_SPECS (each spec tightens the correction).
     chosen, seen = [], set()
-    for spec, why in hyps:
-        if spec not in seen:
+
+    def add(spec, why):
+        if spec not in seen and len(chosen) < MAX_SPECS:
             chosen.append({"spec": spec, "why": why})
             seen.add(spec)
-    chosen = chosen[:MAX_SPECS]
+    add(*rule[0])
+    rule_specs = {r[0] for r in rule}
+    for spec, why in extra:
+        if spec not in seen:
+            add(spec, why + ("" if spec not in rule_specs else " (يتفق مع فرضية قاعدية)"))
+            break
+    for spec, why in rule[1:]:
+        add(spec, why)
 
     def progress(done, total, what):
         _status(db, stage=f"5-8/9 تدريب واختبار المرشحين ({done}/{total}): {what}", progress=round(done / total, 3))

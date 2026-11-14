@@ -19,9 +19,11 @@ log = logging.getLogger("eo.llm")
 
 
 class LocalLLM:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, metrics=None):
         self.s = settings
+        self.metrics = metrics
         self._llm = None
+        self.calls: list[dict] = []          # recent per-call measurements (dashboard)
         # Ollama serves one request at a time on CPU. Analysts run in parallel in the graph, so
         # without this lock requests queue inside Ollama while the HTTP timeout keeps running
         # (measured: calls finished at 27…233 s and one timed out in a real run).
@@ -60,26 +62,67 @@ class LocalLLM:
                 temperature=self.s.llm_temperature, timeout=self.s.llm_timeout, max_retries=1,
                 max_tokens=700,
             ).get_llm()
-            if self.s.llm_reasoning:
-                # Qwen 3.5 is a reasoning model. Measured on qwen3.5:9b / Ollama 0.40.16 / 4 CPUs:
-                # default → 264 s and an EMPTY answer (all tokens spent thinking); "think": false is
-                # ignored on /v1; reasoning_effort "none" → 14.9 s with the correct answer.
-                # TradingAgents' client only forwards reasoning_effort for OpenAI models, so bind it here.
-                self._llm = self._llm.bind(extra_body={"reasoning_effort": self.s.llm_reasoning})
         return self._llm
 
-    def ask(self, prompt: str) -> str:
+    def _body(self, max_tokens: int | None) -> dict:
+        """Extra request fields, sent explicitly because the client renames/drops them:
+        * reasoning_effort — Qwen 3.5 thinks by default: measured 264 s and an EMPTY answer;
+          "think": false is ignored on /v1; reasoning_effort "none" → 14.9 s, correct answer.
+          TradingAgents' client only forwards reasoning_effort for OpenAI models.
+        * max_tokens — langchain sends max_completion_tokens, which Ollama 0.40.16 IGNORES
+          (measured: limit 12 → 313 tokens generated); max_tokens is honoured (→ 12)."""
+        body = {}
+        if self.s.llm_reasoning:
+            body["reasoning_effort"] = self.s.llm_reasoning
+        body["max_tokens"] = int(max_tokens or 400)
+        return body
+
+    def ask(self, prompt: str, max_tokens: int | None = None, role: str = "") -> str:
+        llm = self._client().bind(extra_body=self._body(max_tokens))
+        t_wait = time.perf_counter()
         with self._lock:
-            resp = self._client().invoke(prompt)
+            t0 = time.perf_counter()
+            resp = llm.invoke(prompt)
+            secs = time.perf_counter() - t0
+        um = getattr(resp, "usage_metadata", None) or {}
+        rec = {"role": role, "at": time.time(), "secs": round(secs, 2), "queued_s": round(t0 - t_wait, 2),
+               "in_tokens": um.get("input_tokens"), "out_tokens": um.get("output_tokens"),
+               "prompt_chars": len(prompt)}
+        if rec["out_tokens"]:
+            rec["out_tok_per_s"] = round(rec["out_tokens"] / secs, 2) if secs else None
+        self.calls.append(rec)
+        del self.calls[:-200]
+        if self.metrics is not None:
+            self.metrics.observe("llm_call_s", secs)
+            if rec["in_tokens"]:
+                self.metrics.observe("llm_in_tokens", rec["in_tokens"])
+            if rec["out_tokens"]:
+                self.metrics.observe("llm_out_tokens", rec["out_tokens"])
         content = resp.content
         if isinstance(content, list):
             content = "\n".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
         # Some local reasoning models inline their thinking; keep only the answer.
         return re.sub(r"<think>.*?</think>", "", str(content), flags=re.S).strip()
 
-    def ask_json(self, prompt: str) -> dict:
-        text = self.ask(prompt + "\n\nRespond with ONE JSON object only, no markdown.")
-        m = re.search(r"\{.*\}", text, flags=re.S)
-        if not m:
-            raise ValueError(f"no JSON in LLM answer: {text[:200]!r}")
-        return json.loads(m.group(0))
+    def ask_json(self, prompt: str, max_tokens: int | None = None, role: str = "") -> dict:
+        text = self.ask(prompt + "\n\nRespond with ONE JSON object only, no markdown.", max_tokens, role)
+        return parse_json_answer(text)
+
+
+def parse_json_answer(text: str) -> dict:
+    """Parse the model's JSON, tolerating the one malformation seen in production with
+    qwen3.5:9b: a complete object whose final closing brace is missing."""
+    start = text.find("{")
+    if start < 0:
+        raise ValueError(f"no JSON in LLM answer: {text[:200]!r}")
+    body = text[start:]
+    end = body.rfind("}")
+    candidates = ([body[:end + 1]] if end >= 0 else []) + [body.rstrip() + "}", body.rstrip() + '"}']
+    for c in candidates:
+        try:
+            out = json.loads(c)
+            if isinstance(out, dict):
+                return out
+        except ValueError:
+            continue
+    raise ValueError(f"unparseable JSON in LLM answer: {text[:200]!r}")

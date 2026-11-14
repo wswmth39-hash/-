@@ -84,8 +84,11 @@ class Core:
         ensure_catalog(self.db)
         self.hub = DataHub(self.db, settings.live_max_age, settings.delayed_max_age, settings.stale_max_age)
         self.registry = Registry(self.db, settings.model_dir)
-        self.llm = LocalLLM(settings)
-        self.agents = AgentSystem(self.llm, settings.llm_debate_rounds, settings.llm_risk_rounds)
+        from .metrics import Metrics
+        self.metrics = Metrics()
+        self.llm = LocalLLM(settings, self.metrics)
+        self.agents = AgentSystem(self.llm, settings.llm_debate_rounds, settings.llm_risk_rounds, settings.llm_profile)
+        self._agent_cache: dict[tuple, dict] = {}
         self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="eo")
         # Dedicated signal lane: real-time analysis never queues behind training, agents or DB jobs,
         # and runs serially (no GIL contention between concurrent analyses — measured 12.4→ ms p50).
@@ -96,10 +99,8 @@ class Core:
         self.agent_activity: list[dict] = []
         self.binance: BinanceProvider | None = None
         self._bg: set[asyncio.Task] = set()  # keep references so background runs aren't GC'd
-        from .metrics import Metrics
-        self.metrics = Metrics()
         self.alert = Alerter(self.db, settings.alert_webhook)
-        self.news = NewsCalendar(settings.news_url) if settings.news_enabled else None
+        self.news = NewsCalendar(settings.news_url, db=self.db) if settings.news_enabled else None
         self.execution = ExecutionEngine(self.db, self.hub, settings, self.alert)
         from .auto import AutoScanner
         self.auto = AutoScanner(self)
@@ -188,7 +189,18 @@ class Core:
                             "duration": sig["duration"], "state": "running", "started_at": started})
             try:
                 rec = self.record_for(sig["market"], sig["duration"], "agents")
-                out = await asyncio.get_running_loop().run_in_executor(self.pool, self.agents.run, sig, rec)
+                # Run cache: the same market × duration × analysis candle was already researched.
+                ckey = (sig["market"], sig["duration"], int(sig.get("entry_ts") or 0) // sig.get("analysis_period", 1))
+                cached = self._agent_cache.get(ckey)
+                if cached is not None:
+                    out = {**cached, "cached": True}
+                    self.metrics.inc("agent_runs_cached")
+                else:
+                    out = await asyncio.get_running_loop().run_in_executor(self.pool, self.agents.run, sig, rec)
+                    self._agent_cache[ckey] = out
+                    if len(self._agent_cache) > 200:
+                        self._agent_cache.pop(next(iter(self._agent_cache)))
+                    self.metrics.observe("agent_run_s", out.get("elapsed", 0))
                 final = out["final"]
                 cand = final.get("candidate")
                 # Same policy as the fast engine: a direction is only published when the
@@ -299,6 +311,23 @@ class Core:
             log.info("health", extra={"health": {k: h[k] for k in ("status", "resources")}})
             await asyncio.sleep(60)
 
+    async def svc_llm_keepalive(self) -> None:
+        """Keep the model resident: a cold load measured 29.9 s on this machine. Every /v1 request
+        resets Ollama's keep-alive to its server default, so re-pin it periodically."""
+        import httpx
+        base = self.s.llm_base_url.rstrip("/").removesuffix("/v1")
+        while True:
+            if self.s.llm_enabled and self.llm.health().get("ok"):
+                try:
+                    async with httpx.AsyncClient(timeout=180) as c:
+                        r = await c.post(f"{base}/api/generate", json={"model": self.s.llm_model, "prompt": "",
+                                                                       "keep_alive": self.s.llm_keep_alive})
+                        load = (r.json().get("load_duration") or 0) / 1e9
+                        self.metrics.observe("llm_keepalive_load_s", load)
+                except Exception as e:
+                    log.warning("llm keep-alive failed: %s", e)
+            await asyncio.sleep(240)
+
     async def svc_news(self) -> None:
         while True:
             await asyncio.get_running_loop().run_in_executor(self.pool, self.news.refresh)
@@ -317,6 +346,8 @@ class Core:
         if self.news is not None:
             self.sup.spawn("news_calendar", self.svc_news)
         self.sup.spawn("auto_scanner", self.auto.run)
+        if self.s.llm_enabled:
+            self.sup.spawn("llm_keepalive", self.svc_llm_keepalive)
         self.db.event("info", "service", "بدأ تشغيل المنصة")
 
     async def stop(self) -> None:

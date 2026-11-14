@@ -53,7 +53,8 @@ class AutoScanner:
         b = self._pending.get(end)
         if b is None:
             live = {m["id"] for m in list_markets(self.core.db, enabled_only=True)
-                    if (not cfg["markets"] or m["id"] in cfg["markets"]) and self.core.hub.best_source(m)[1] == "LIVE"}
+                    if (not cfg["markets"] or m["id"] in cfg["markets"])
+                    and self.core.hub.best_source(m)[1] in ("LIVE", "DELAYED")}   # DELAYED may report any moment
             b = self._pending[end] = {"rows": [], "done": set(), "started": set(), "expected": live,
                                       "first_rx": rx, "ranked": False, "cfg": cfg}
             self._loop.call_later(COLLECT_S, lambda e=end: self._spawn(self._rank(e)))

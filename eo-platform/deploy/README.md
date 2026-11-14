@@ -26,6 +26,17 @@ docker compose exec app python -m eoplatform create-admin
 (crontab -l 2>/dev/null; echo "@reboot cd $PWD && .venv/bin/python -m eoplatform serve >> var/serve.log 2>&1") | crontab -
 ```
 
+## Ollama: الأولوية والإبقاء في الذاكرة
+* المنصة تعيد تثبيت `keep_alive` كل 4 دقائق (`EO_LLM_KEEP_ALIVE`)، لأن التحميل البارد استغرق 29.9 ث عند القياس.
+* لحماية زمن الإشارات أثناء عمل النموذج، شغّل Ollama بأولوية أقل من المنصة.
+  القياس على 4 أنوية: زاد ذيل الزمن p95 بنحو 34 مللي ثانية فقط، ولم يتغير الوسيط.
+  ```bash
+  sudo systemctl edit ollama   # ثم أضف:
+  # [Service]
+  # Nice=10
+  # Environment=OLLAMA_KEEP_ALIVE=60m
+  ```
+
 ## التنبيهات
 ضع `EO_ALERT_WEBHOOK=https://ntfy.sh/<موضوع-خاص-بك>` في `.env`، ثم ثبّت تطبيق ntfy على جوالك واشترك في الموضوع نفسه.
 ستصلك تنبيهات عند:

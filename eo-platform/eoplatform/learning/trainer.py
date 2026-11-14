@@ -215,6 +215,12 @@ def train_one(db: DB, registry: Registry, settings: Settings, market: dict, dura
     }
 
     champ = registry.champion(market["id"], duration)
+    if champ is not None and champ[0]["metrics"].get("features") != F.FEATURES:
+        # Found in production: a champion trained on the previous 37-feature layout crashed
+        # re-validation (37 vs 45 columns). It cannot be scored on current features: retire it.
+        registry.demote(champ[0]["id"], "feature set changed since training — retired, retraining required")
+        db.event("warning", "model", f"سحب النموذج #{champ[0]['id']}: قائمة المؤشرات تغيّرت منذ تدريبه")
+        champ = None
     # The incumbent must keep passing the CURRENT gate on the NEWEST held-out window.
     if champ is not None and champ[0]["metrics"].get("source") == source:
         cthr = champ[0]["metrics"].get("threshold")

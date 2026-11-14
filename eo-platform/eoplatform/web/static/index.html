@@ -25,6 +25,7 @@
     <button data-view="dash" class="active">لوحة التداول</button>
     <button data-view="auto">أفضل الفرص (AUTO)</button>
     <button data-view="exec">التنفيذ والمخاطر</button>
+    <button data-view="intel">النظام والذكاء</button>
     <button data-view="signals">سجل الإشارات</button>
     <button data-view="agents">نشاط الوكلاء</button>
     <button data-view="perf">الأداء والنماذج</button>
@@ -112,6 +113,25 @@
       <div class="card"><h2>الصفقات المفتوحة</h2><div class="tablewrap"><table id="open-orders"><thead></thead><tbody></tbody></table></div></div>
       <div class="card"><h2>الصفقات المغلقة والمرفوضة</h2><div class="tablewrap"><table id="closed-orders"><thead></thead><tbody></tbody></table></div></div>
       <div class="card"><h2>سجل التنفيذ</h2><div class="tablewrap"><table id="exec-log"><thead><tr><th>الوقت</th><th>الأمر</th><th>الحدث</th><th>التفاصيل</th></tr></thead><tbody></tbody></table></div></div>
+    </section>
+
+    <!-- SYSTEM & INTELLIGENCE -->
+    <section class="view" id="v-intel">
+      <div class="card"><h2>زمن الاستجابة المُقاس <span class="small muted">(من التشغيل الفعلي، آخر ساعة)</span></h2>
+        <div class="grid g4" id="lat-cards"></div></div>
+      <div class="grid g2">
+        <div class="card"><h2>توزيع القرارات</h2><div id="dist"></div></div>
+        <div class="card"><h2>النماذج النشطة وحالة التحقق</h2><div class="tablewrap"><table id="active-models"><thead></thead><tbody></tbody></table></div></div>
+      </div>
+      <div class="card"><div class="row"><h2>دورة البحث والتحسين</h2><button class="btn ghost" id="research-run">تشغيل دورة الآن</button></div>
+        <div id="research-status" class="small"></div>
+        <div class="bar"><i id="research-bar"></i></div>
+        <div id="research-last" class="small"></div></div>
+      <div class="card"><h2>أداء حسب جودة الإشارة والفئة وحالة السوق</h2>
+        <p class="small muted">«مُتحقق» = 30 نتيجة حقيقية على الأقل. ما دون ذلك «تجريبي» ولا يُعتمد عليه. درجة الجودة مؤشر تجريبي وليست احتمالًا.</p>
+        <div class="tablewrap"><table id="quality-table"><thead></thead><tbody></tbody></table></div></div>
+      <div class="card"><h2>استدعاءات Qwen الأخيرة</h2><div class="small muted" id="llm-profile"></div>
+        <div class="tablewrap"><table id="llm-calls"><thead></thead><tbody></tbody></table></div></div>
     </section>
 
     <!-- SIGNALS -->

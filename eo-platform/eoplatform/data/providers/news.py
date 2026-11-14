@@ -29,11 +29,17 @@ def market_currencies(market: dict) -> list[str]:
 
 
 class NewsCalendar:
-    def __init__(self, url: str, refresh_s: int = 1800):
-        self.url, self.refresh_s = url, refresh_s
+    def __init__(self, url: str, refresh_s: int = 1800, db=None):
+        self.url, self.refresh_s, self.db = url, refresh_s, db
         self.events: list[dict] = []
         self.fetched_at: float = 0
         self.error: str | None = None
+        # Reuse the last download across restarts (found in production: frequent restarts
+        # re-downloaded the calendar and the publisher answered 429 Too Many Requests).
+        if db is not None:
+            cached = db.kv_get("news_cache")
+            if cached and time.time() - cached.get("fetched_at", 0) < refresh_s:
+                self.events, self.fetched_at = cached["events"], cached["fetched_at"]
 
     def refresh(self, force: bool = False) -> None:
         if not force and time.time() - self.fetched_at < self.refresh_s:
@@ -51,14 +57,28 @@ class NewsCalendar:
                             "impact": e.get("impact", ""), "forecast": e.get("forecast", ""),
                             "previous": e.get("previous", "")})
             self.events, self.fetched_at, self.error = sorted(evs, key=lambda x: x["ts"]), time.time(), None
+            if self.db is not None:
+                self.db.kv_set("news_cache", {"events": self.events, "fetched_at": self.fetched_at})
         except Exception as e:
             self.error = f"{type(e).__name__}: {e}"[:200]
-            self.fetched_at = time.time() - self.refresh_s + 300   # retry in 5 min
+            rate_limited = isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429
+            # retry in 5 min, or 30 min when the publisher asks us to slow down
+            self.fetched_at = time.time() - self.refresh_s + (1800 if rate_limited else 300)
+            if self.events:   # keep serving the last good calendar, but say it is stale
+                self.error += " — serving last good copy"
             log.warning("news calendar fetch failed: %s", self.error)
 
     def status(self) -> dict:
-        return {"ok": bool(self.events) and self.error is None, "events": len(self.events),
+        # a previous good copy younger than 12 h is still usable (events are scheduled in advance)
+        fresh = bool(self.events) and (self.error is None or time.time() - self.last_good() < 12 * 3600)
+        return {"ok": fresh, "events": len(self.events),
                 "fetched_at": self.fetched_at or None, "error": self.error, "source": self.url}
+
+    def last_good(self) -> float:
+        if self.db is not None:
+            c = self.db.kv_get("news_cache") or {}
+            return c.get("fetched_at", 0)
+        return self.fetched_at if self.error is None else 0
 
     def near(self, currencies: list[str], now: float, window_min: int) -> list[dict]:
         w = window_min * 60

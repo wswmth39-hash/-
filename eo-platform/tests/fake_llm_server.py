@@ -36,13 +36,13 @@ class H(BaseHTTPRequestHandler):
         req = json.loads(self.rfile.read(n))
         REQUESTS.append(req)
         prompt = req["messages"][-1]["content"]
-        if "final call" in prompt:
+        if "final decision" in prompt or "final call" in prompt:
             ans = {"decision": H.final_decision, "reason": "قرار اختباري"}
-        elif "judge" in prompt:
+        elif "judge" in prompt.split("---")[-1]:
             ans = {"lean": "BUY", "summary": "ملخص الحكم"}
-        elif "risk manager" in prompt:
+        elif "risk manager" in prompt.split("---")[-1]:
             ans = {"summary": "تقييم المخاطر", "extra_veto": ""}
-        elif "researcher" in prompt or "risk analyst" in prompt:
+        elif "researcher" in prompt.split("---")[-1] or "risk analyst" in prompt.split("---")[-1]:
             ans = {"argument": "<think>hidden</think>حجة اختبارية", "strength": 0.5}
         else:
             ans = {"stance": "bullish", "summary": "ملخص المحلل", "key_risk": "لا شيء"}

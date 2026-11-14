@@ -98,3 +98,37 @@ def test_llm_hypotheses_are_restricted_to_catalog():
             return {"specs": ["regularised", "rm -rf /", "base; DROP TABLE"], "reasoning": "x"}
     hyps, info = research.llm_hypotheses(FakeLLM(), {})
     assert [h[0] for h in hyps] == ["regularised"] and info["accepted"] == ["regularised"]
+
+
+def test_parse_json_tolerates_missing_final_brace():
+    from eoplatform.agents.llm import parse_json_answer
+    real = '{"specs":["regularised","shallow"],"reasoning":"نموذج regularised يعالج الإفراط في التخصيص."'
+    assert parse_json_answer(real)["specs"] == ["regularised", "shallow"]
+    assert parse_json_answer('noise {"a": 1} tail')["a"] == 1
+    with pytest.raises(ValueError):
+        parse_json_answer("no json here")
+
+
+def test_incumbent_with_old_feature_layout_is_retired_not_crash(env):
+    s, db, hub, reg = env
+    X = np.random.default_rng(0).normal(size=(300, 37))
+    old = DirectionModel.train(X, (X[:, 0] > 0).astype(int))
+    mid = reg.register("EURUSD_OTC", 30, old, {"source": "expertoption", "threshold": 0.05, "validated": True,
+                                                "features": F.FEATURES[:37]}, "candidate")
+    reg.promote(mid)
+    r = trainer.train_one(db, reg, s, get_market(db, "EURUSD_OTC"), 30, "expertoption",
+                          np.array(random_walk_bars(20000, end=1_800_000_000, seed=31), float))
+    assert not str(r["status"]).startswith("error"), r
+    assert db.one("SELECT status FROM models WHERE id=?", (mid,))["status"] == "retired"
+
+
+def test_llm_proposal_gets_a_slot(settings, monkeypatch):
+    from eoplatform.learning import research
+    from eoplatform.service.core import Core
+    core = Core(settings)
+    core.db.upsert_bars("EURUSD_OTC", "expertoption", random_walk_bars(20000, end=1_800_000_000, seed=5))
+    monkeypatch.setattr(research, "llm_hypotheses",
+                        lambda llm, summary: ([("regularised", "اقتراح Qwen: x")], {"used": True, "accepted": ["regularised"]}))
+    rep = research.run_cycle(core, use_llm=True)
+    specs = [h["spec"] for h in rep["hypotheses"]]
+    assert specs[0] == "base" and specs[1] == "regularised" and len(specs) == research.MAX_SPECS

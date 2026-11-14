@@ -210,7 +210,8 @@ def create_app(settings: Settings, start_services: bool = True) -> FastAPI:
     async def agents(u=Depends(user)):
         runs = core.db.all("SELECT id,signal_id,market,duration,started_at,finished_at,llm_used,llm_model,decision,error "
                            "FROM agent_runs ORDER BY id DESC LIMIT 30")
-        return {"activity": core.agent_activity, "runs": runs, "llm": core.llm.health()}
+        return {"activity": core.agent_activity, "runs": runs, "llm": core.llm.health(),
+                "llm_calls": core.llm.calls[-40:][::-1], "profile": settings.llm_profile}
 
     @app.get("/api/agents/{rid}")
     async def agent_run(rid: int, u=Depends(user)):

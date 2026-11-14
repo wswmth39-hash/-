@@ -1,0 +1,126 @@
+{
+ "machine": {
+  "cpu_count": 4,
+  "python": "3.13.18",
+  "platform": "Linux-6.18.44-fc-v470-x86_64-with-glibc2.39"
+ },
+ "data": [
+  {
+   "market": "BTCUSD",
+   "source": "binance",
+   "bars": 93628,
+   "first": 1794591018,
+   "last": 1794684645
+  },
+  {
+   "market": "ETHUSD",
+   "source": "binance",
+   "bars": 93628,
+   "first": 1794591018,
+   "last": 1794684645
+  },
+  {
+   "market": "LTCUSD",
+   "source": "binance",
+   "bars": 93628,
+   "first": 1794591018,
+   "last": 1794684645
+  },
+  {
+   "market": "XRPUSD",
+   "source": "binance",
+   "bars": 93628,
+   "first": 1794591018,
+   "last": 1794684645
+  }
+ ],
+ "resample_full_series": {
+  "P5": {
+   "old_loop": {
+    "p50_ms": 51.465,
+    "p95_ms": 58.295,
+    "n": 5
+   },
+   "vectorised": {
+    "p50_ms": 2.931,
+    "p95_ms": 2.994,
+    "n": 5
+   }
+  },
+  "P60": {
+   "old_loop": {
+    "p50_ms": 21.932,
+    "p95_ms": 22.329,
+    "n": 5
+   },
+   "vectorised": {
+    "p50_ms": 2.371,
+    "p95_ms": 2.394,
+    "n": 5
+   }
+  }
+ },
+ "features_240_candles": {
+  "pandas_ta_reference": {
+   "p50_ms": 19.599,
+   "p95_ms": 25.328,
+   "n": 30
+  },
+  "numpy_engine": {
+   "p50_ms": 3.895,
+   "p95_ms": 4.193,
+   "n": 30
+  }
+ },
+ "features_full_series": {
+  "candles": 18727,
+  "pandas_ta_reference": {
+   "p50_ms": 257.012,
+   "p95_ms": 227.993,
+   "n": 2
+  },
+  "numpy_engine": {
+   "p50_ms": 183.655,
+   "p95_ms": 159.959,
+   "n": 2
+  }
+ },
+ "fast_analysis": {
+  "30s": {
+   "cold_p50_ms": 4.178,
+   "cold_p95_ms": 4.445,
+   "warm": {
+    "p50_ms": 0.837,
+    "p95_ms": 0.901,
+    "n": 30
+   }
+  },
+  "60s": {
+   "cold_p50_ms": 4.758,
+   "cold_p95_ms": 4.969,
+   "warm": {
+    "p50_ms": 1.277,
+    "p95_ms": 1.757,
+    "n": 30
+   }
+  },
+  "120s": {
+   "cold_p50_ms": 5.982,
+   "cold_p95_ms": 10.022,
+   "warm": {
+    "p50_ms": 3.43,
+    "p95_ms": 3.557,
+    "n": 30
+   }
+  },
+  "300s": {
+   "cold_p50_ms": 8.975,
+   "cold_p95_ms": 14.7,
+   "warm": {
+    "p50_ms": 4.906,
+    "p95_ms": 5.44,
+    "n": 30
+   }
+  }
+ }
+}
