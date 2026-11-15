@@ -94,10 +94,28 @@ def test_llm_hypotheses_are_restricted_to_catalog():
         def health(self):
             return {"ok": True}
 
-        def ask_json(self, prompt):
-            return {"specs": ["regularised", "rm -rf /", "base; DROP TABLE"], "reasoning": "x"}
+        def ask_json(self, prompt, max_tokens=None, role=""):
+            return {"specs": ["regularised", "rm -rf /", "base; DROP TABLE"], "reasoning": "x",
+                    "weaknesses": ["خسائر متكررة في حالة النطاق العرضي"]}
     hyps, info = research.llm_hypotheses(FakeLLM(), {})
     assert [h[0] for h in hyps] == ["regularised"] and info["accepted"] == ["regularised"]
+    assert info["rejected"] == ["rm -rf /", "base; DROP TABLE"] and info["weaknesses"]
+
+
+def test_every_proposal_is_recorded(env):
+    from eoplatform.learning import research
+    s, db, hub, reg = env
+
+    class FakeLLM:
+        def health(self):
+            return {"ok": True}
+
+        def ask_json(self, prompt, max_tokens=None, role=""):
+            assert "catalog" in prompt                     # Qwen only sees the fixed catalog
+            return {"specs": ["lightgbm", "make_money_fast"], "reasoning": "x", "weaknesses": ["w"]}
+    research.llm_hypotheses(FakeLLM(), research.failure_summary(db), db)
+    row = db.one("SELECT * FROM research_proposals")
+    assert json.loads(row["accepted"]) == ["lightgbm"] and json.loads(row["rejected"]) == ["make_money_fast"]
 
 
 def test_parse_json_tolerates_missing_final_brace():
@@ -128,7 +146,8 @@ def test_llm_proposal_gets_a_slot(settings, monkeypatch):
     core = Core(settings)
     core.db.upsert_bars("EURUSD_OTC", "expertoption", random_walk_bars(20000, end=1_800_000_000, seed=5))
     monkeypatch.setattr(research, "llm_hypotheses",
-                        lambda llm, summary: ([("regularised", "اقتراح Qwen: x")], {"used": True, "accepted": ["regularised"]}))
+                        lambda llm, summary, db=None: ([("regularised", "اقتراح Qwen: x")],
+                                                       {"used": True, "accepted": ["regularised"]}))
     rep = research.run_cycle(core, use_llm=True)
     specs = [h["spec"] for h in rep["hypotheses"]]
     assert specs[0] == "base" and specs[1] == "regularised" and len(specs) == research.MAX_SPECS

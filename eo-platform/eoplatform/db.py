@@ -72,6 +72,21 @@ CREATE TABLE IF NOT EXISTS bridge_tokens (
 
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
+-- every research proposal (rule-based or Qwen) with what was accepted / rejected and why
+CREATE TABLE IF NOT EXISTS research_proposals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, created_at REAL NOT NULL, proposer TEXT NOT NULL, summary TEXT,
+  raw TEXT, weaknesses TEXT, accepted TEXT, rejected TEXT, secs REAL, error TEXT
+);
+
+-- pre-registered forward tests: evaluated ONLY on data that arrives after registration
+CREATE TABLE IF NOT EXISTS forward_tests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, created_at REAL NOT NULL, market TEXT NOT NULL, duration INTEGER NOT NULL,
+  source TEXT NOT NULL, spec TEXT NOT NULL, model_id INTEGER NOT NULL, threshold REAL NOT NULL, start_ts REAL NOT NULL,
+  target_n INTEGER NOT NULL, required REAL NOT NULL, family INTEGER NOT NULL DEFAULT 1, rationale TEXT,
+  status TEXT NOT NULL DEFAULT 'running', n INTEGER NOT NULL DEFAULT 0, wins INTEGER NOT NULL DEFAULT 0,
+  accuracy REAL, lb REAL, updated_at REAL, decided_at REAL
+);
+
 -- every hypothesis ever tested (multiple-testing family, audit trail, dashboard)
 CREATE TABLE IF NOT EXISTS hypothesis_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT, created_at REAL NOT NULL, market TEXT NOT NULL, duration INTEGER NOT NULL,

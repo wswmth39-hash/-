@@ -106,6 +106,8 @@ class Core:
         self.auto = AutoScanner(self)
         self._down_since: dict[str, float] = {}
         self._last_auto_sig: dict[tuple, int] = {}
+        from ..learning.stats import PerfCache
+        self.perf = PerfCache(self.db)
         # Agent runs that were in progress when the process stopped can never finish: say so.
         self.db.execute("UPDATE agent_runs SET finished_at=?, error=? WHERE finished_at IS NULL",
                         (time.time(), "انقطع: أُعيد تشغيل الخادم أثناء التشغيل"))
@@ -153,7 +155,7 @@ class Core:
         if duration not in DURATIONS:
             raise ValueError("duration must be one of 30, 60, 120, 300")
         t0 = time.perf_counter()
-        sig = analyze(m, duration, self.hub, self.registry, self.s, news=self.news)
+        sig = analyze(m, duration, self.hub, self.registry, self.s, news=self.news, perf=self.perf)
         self.metrics.observe("fast_analysis_ms", (time.perf_counter() - t0) * 1000)
         # Duplicate prevention for automatic triggers: one recorded signal per market × duration ×
         # source × analysis candle. (Manual requests are always recorded — the user asked.)
@@ -334,6 +336,16 @@ class Core:
                     log.warning("llm keep-alive failed: %s", e)
             await asyncio.sleep(240)
 
+    async def svc_forward_tests(self) -> None:
+        from ..learning import forward
+        while True:
+            await asyncio.sleep(600)
+            try:
+                await asyncio.get_running_loop().run_in_executor(self.pool, forward.evaluate_all, self.db,
+                                                                 self.registry, self.s)
+            except Exception:
+                log.exception("forward test evaluation failed")
+
     async def svc_news(self) -> None:
         while True:
             await asyncio.get_running_loop().run_in_executor(self.pool, self.news.refresh)
@@ -352,6 +364,7 @@ class Core:
         if self.news is not None:
             self.sup.spawn("news_calendar", self.svc_news)
         self.sup.spawn("auto_scanner", self.auto.run)
+        self.sup.spawn("forward_tests", self.svc_forward_tests)
         if self.s.llm_enabled:
             self.sup.spawn("llm_keepalive", self.svc_llm_keepalive)
         self.db.event("info", "service", "بدأ تشغيل المنصة")

@@ -26,7 +26,7 @@ SOURCE_AR = {"expertoption": "ExpertOption (عبر الجسر)", "binance": "Bin
 
 
 def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, settings: Settings,
-            now: float | None = None, news=None) -> dict:
+            now: float | None = None, news=None, perf=None) -> dict:
     t0 = time.perf_counter()
     now = now or time.time()
     P = ANALYSIS_PERIOD[duration]
@@ -43,6 +43,7 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
 
     def done():
         classify(sig, ctx, settings)
+        explain(sig, ctx, settings, perf)
         sig["latency_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         return sig
 
@@ -100,8 +101,9 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
         mrow, model = champ
         x = feats.iloc[[-1]].to_numpy(dtype=float)
         p_up = float(model.predict(x)[0])
-        sig["prob"] = round(p_up, 4)
+        sig["prob"] = round(p_up, 4)          # internal model output; displayed only if calibrated
         sig["model_id"] = mrow["id"]
+        ctx["model_meta"] = mrow["metrics"]
         sig["candidate"] = "BUY" if p_up > 0.5 else "SELL"
     else:
         sig["candidate"] = "BUY" if score > 0 else "SELL" if score < 0 else None
@@ -169,6 +171,72 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
     sig["decision"] = sig["candidate"]
     sig["validated"] = True
     return done()
+
+
+ECE_MAX = 0.03
+
+
+def calibration_ok(meta: dict | None) -> tuple[bool, str]:
+    """A raw model probability may be displayed only when the model is validated AND its
+    probabilities proved calibrated on independent out-of-sample trades."""
+    if not meta or not meta.get("validated"):
+        return False, "لا يوجد نموذج مُتحقق منه"
+    cq = meta.get("calibration_quality") or {}
+    rel = cq.get("reliability") or []
+    n = sum(b["n"] for b in rel)
+    if n < 200:
+        return False, "عينة المعايرة غير كافية"
+    ece = sum(b["n"] * abs(b["mean_pred"] - b["freq_up"]) for b in rel) / n
+    if ece > ECE_MAX or (cq.get("brier") or 1) >= (cq.get("brier_baseline") or 0):
+        return False, f"الاحتمالات غير معايرة (ECE {ece:.3f})"
+    return True, f"معايرة مُتحقق منها (ECE {ece:.3f} على {n} صفقة مستقلة)"
+
+
+ABSTAIN_CODES = [("لا توجد بيانات", "no_data"), ("متصلة غير كافية", "insufficient_continuous_data"),
+                 ("ليست حية", "data_not_live"), ("لا إشارة على بيانات غير حية", "data_not_live"),
+                 ("مجمّد", "frozen_data"), ("تقلب/سيولة", "abnormal_volatility"), ("هادئ جدًا", "quiet_market"),
+                 ("خبر اقتصادي", "news_risk"), ("غير مربح تاريخيًا", "regime_blocked"),
+                 ("لا يوجد نموذج", "no_validated_model"), ("لم يحقق دقة", "model_not_validated"),
+                 ("أقل من العتبة", "below_validated_threshold")]
+
+
+def explain(sig: dict, ctx: dict, settings, perf) -> None:
+    """Supporting / conflicting evidence, validation status, conditional historical performance."""
+    ev = ctx.get("ev") or {}
+    d = 1 if sig.get("candidate") == "BUY" else -1 if sig.get("candidate") == "SELL" else 0
+    sig["evidence_for"], sig["evidence_against"] = [], []
+    for k, e in ev.items():
+        if k == "news":
+            continue
+        line = {"agent": e.get("name_ar", k), "score": round(e["score"], 3), "facts": e.get("facts", [])[:3]}
+        if d and e["score"] * d > 0.05:
+            sig["evidence_for"].append(line)
+        elif d and e["score"] * d < -0.05:
+            sig["evidence_against"].append(line)
+    sig["evidence_for"].sort(key=lambda x: -abs(x["score"]))
+    sig["evidence_against"].sort(key=lambda x: -abs(x["score"]))
+    meta = ctx.get("model_meta")
+    if meta:
+        g = meta.get("gates") or {}
+        sig["model_status"] = {
+            "state": "validated" if meta.get("validated") else "not_validated", "model_id": sig.get("model_id"),
+            "protocol": meta.get("protocol"), "algo": meta.get("algo", "xgboost"), "spec": meta.get("spec"),
+            "oos_independent_trades": g.get("trades"), "oos_accuracy": g.get("accuracy"), "oos_lb": g.get("lb"),
+            "required_accuracy": meta.get("required_accuracy"), "folds": meta.get("walk_forward")}
+        reg = (meta.get("regime_stats") or {}).get(sig.get("regime"))
+    else:
+        sig["model_status"] = {"state": "none", "note": "لا يوجد نموذج مُتحقق منه لهذا السوق والمدة"}
+        reg = None
+    ok, why = calibration_ok(meta)
+    sig["probability_display"] = sig.get("prob") if ok else None
+    sig["probability_note"] = why if ok else f"لا يُعرض احتمال: {why}"
+    sig["conditional_performance"] = {
+        "oos_this_regime": ({**reg, "verified": reg.get("n", 0) >= 30} if reg else None),
+        "live": perf.get(sig["market"], sig["duration"], sig.get("regime")) if perf is not None else None}
+    if sig["decision"] == "WAIT":
+        first = (sig.get("reasons") or [""])[0]
+        code = next((c for k, c in ABSTAIN_CODES if k in first), "other")
+        sig["abstain_reason"] = {"code": code, "text": first}
 
 
 CLASS_AR = {"STRONG_BUY": "شراء قوي", "STRONG_SELL": "بيع قوي", "BUY": "شراء", "SELL": "بيع",

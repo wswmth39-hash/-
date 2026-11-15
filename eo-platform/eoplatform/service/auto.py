@@ -127,7 +127,7 @@ class AutoScanner:
             if src is None or state != "LIVE":
                 continue
             t0 = time.perf_counter()
-            sig = analyze(m, d, c.hub, c.registry, c.s, now=now, news=c.news)
+            sig = analyze(m, d, c.hub, c.registry, c.s, now=now, news=c.news, perf=getattr(c, "perf", None))
             c.metrics.observe("fast_analysis_ms", (time.perf_counter() - t0) * 1000)
             c.metrics.inc(f"decision_{sig['decision']}")
             if sig.get("signal_class"):

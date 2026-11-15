@@ -103,3 +103,43 @@ def failure_patterns(rows: list[dict], min_n: int = 30) -> list[dict]:
         if s["n"] >= min_n and s["accuracy"] is not None and s["accuracy"] < base["accuracy"] - 0.03:
             out.append({"dimension": dim, "value": val, **s, "baseline": base["accuracy"]})
     return sorted(out, key=lambda x: x["accuracy"])[:20]
+
+
+class PerfCache:
+    """Live outcome statistics by market × duration (× regime) for decision explanations.
+    Recomputed at most every ``ttl`` seconds with one query, so the fast path stays fast."""
+
+    def __init__(self, db: DB, ttl: float = 60.0, min_n: int = 30):
+        self.db, self.ttl, self.min_n = db, ttl, min_n
+        self._at, self._data = 0.0, {}
+
+    def _refresh(self) -> None:
+        import time as _t
+        rows = self.db.all("SELECT market, duration, source, decision, status, payload FROM signals "
+                           "WHERE status IN ('win','loss') AND created_at > ?", (_t.time() - 30 * 86400,))
+        groups = defaultdict(list)
+        for r in rows:
+            try:
+                reg = json.loads(r["payload"] or "{}").get("regime")
+            except ValueError:
+                reg = None
+            acted = r["decision"] != "WAIT"
+            for key in ((r["market"], r["duration"], r["source"], None, acted), (r["market"], r["duration"], r["source"], reg, acted)):
+                groups[key].append(r)
+        self._data = {k: _summ(v) for k, v in groups.items()}
+        self._at = _t.time()
+
+    def get(self, market: str, duration: int, regime: str | None, source: str = "fast") -> dict:
+        import time as _t
+        if _t.time() - self._at > self.ttl:
+            self._refresh()
+
+        def pack(key):
+            s_ = self._data.get(key)
+            if not s_ or not s_["n"]:
+                return {"n": 0, "verified": False}
+            return {**s_, "verified": s_["n"] >= self.min_n}
+        return {"published_signals": pack((market, duration, source, None, True)),
+                "published_signals_this_regime": pack((market, duration, source, regime, True)),
+                "all_candidates": pack((market, duration, source, None, False)),
+                "all_candidates_this_regime": pack((market, duration, source, regime, False))}

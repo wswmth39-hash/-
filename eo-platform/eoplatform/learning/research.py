@@ -51,29 +51,82 @@ def rule_hypotheses(last_retrain: dict | None, perf: dict) -> list[tuple[str, st
     return hyps
 
 
-def llm_hypotheses(llm, summary: dict) -> tuple[list[tuple[str, str]], dict]:
-    """Ask the local model to pick up to 2 specs from the catalog. Output is validated."""
+def failure_summary(db, days: float = 7) -> dict:
+    """Compact, factual summary of recent FAILED predictions for the research model."""
+    rows = db.all("SELECT market, duration, decision, candidate, status, payload FROM signals "
+                  "WHERE status IN ('win','loss') AND created_at > ?", (time.time() - days * 86400,))
+    losses = [r for r in rows if r["status"] == "loss"]
+    by = Counter()
+    conflict, total_l = 0, 0
+    for r in losses:
+        try:
+            p = json.loads(r["payload"] or "{}")
+        except ValueError:
+            p = {}
+        by[(r["market"], r["duration"], p.get("regime"), p.get("signal_class"))] += 1
+        total_l += 1
+        if p.get("evidence_against"):
+            conflict += 1
+    last = db.kv_get("last_retrain") or {}
+    rej = Counter()
+    for r in last.get("results", []):
+        for reason in str(r.get("note") or "").split(";"):
+            if reason.strip():
+                rej[reason.strip().split(" (")[0][:60]] += 1
+    return {"resolved": len(rows), "losses": total_l,
+            "loss_rate": round(total_l / len(rows), 3) if rows else None,
+            "top_loss_conditions": [{"market": k[0], "duration": k[1], "regime": k[2], "class": k[3], "losses": v}
+                                    for k, v in by.most_common(6)],
+            "losses_with_conflicting_evidence": conflict,
+            "model_rejection_reasons": rej.most_common(5),
+            "catalog": {k: {"features": v["features"], "algo": v.get("algo", "xgboost")} for k, v in trainer.SPECS.items()}}
+
+
+def llm_hypotheses(llm, summary: dict, db=None) -> tuple[list[tuple[str, str]], dict]:
+    """Qwen analyses failures and may pick at most 2 specs from the catalog. Every proposal —
+    accepted, rejected or failed — is recorded. Qwen cannot touch models, thresholds or execution."""
+    rec = {"proposer": "qwen", "summary": json.dumps(summary, ensure_ascii=False, default=str)[:4000]}
     if llm is None or not llm.health().get("ok"):
-        return [], {"used": False, "reason": "local LLM unavailable"}
-    catalog = {k: v["features"] + " " + json.dumps(v["params"]) for k, v in trainer.SPECS.items()}
-    prompt = ("You review a trading model research summary and pick at most 2 candidate model specs to test next, "
-              f"ONLY from this catalog: {json.dumps(catalog)}.\nSummary: {json.dumps(summary)[:2500]}\n"
-              'Return {"specs":["name",...],"reasoning":"one short sentence in Arabic"}')
+        info = {"used": False, "reason": "local LLM unavailable"}
+        if db is not None:
+            db.execute("INSERT INTO research_proposals(created_at,proposer,summary,error) VALUES(?,?,?,?)",
+                       (time.time(), "qwen", rec["summary"], info["reason"]))
+        return [], info
+    prompt = ("You analyse failed short-term trading predictions and propose what to test next.\n"
+              f"Facts: {json.dumps(summary, ensure_ascii=False, default=str)[:2500]}\n"
+              "Pick at most 2 spec names ONLY from 'catalog'. Return "
+              '{"weaknesses":["short Arabic sentence", ...],"specs":["name",...],"reasoning":"one short Arabic sentence"}')
     t = time.time()
     try:
-        out = llm.ask_json(prompt)
+        out = llm.ask_json(prompt, max_tokens=220, role="Research (failure analysis)")
     except Exception as e:
-        return [], {"used": False, "reason": f"{type(e).__name__}: {e}"[:200]}
-    picked = [s for s in out.get("specs", []) if isinstance(s, str) and s in trainer.SPECS][:2]
+        info = {"used": False, "reason": f"{type(e).__name__}: {e}"[:200]}
+        if db is not None:
+            db.execute("INSERT INTO research_proposals(created_at,proposer,summary,error,secs) VALUES(?,?,?,?,?)",
+                       (time.time(), "qwen", rec["summary"], info["reason"], round(time.time() - t, 1)))
+        return [], info
+    raw = out.get("specs", [])
+    picked = [x for x in raw if isinstance(x, str) and x in trainer.SPECS][:2]
+    rejected = [x for x in raw if x not in picked]
     why = str(out.get("reasoning", ""))[:300]
-    return [(s, f"اقتراح Qwen: {why}") for s in picked], {"used": True, "secs": round(time.time() - t, 1),
-                                                          "raw_specs": out.get("specs"), "accepted": picked}
+    weak = [str(w)[:200] for w in (out.get("weaknesses") or [])][:5]
+    info = {"used": True, "secs": round(time.time() - t, 1), "raw_specs": raw, "accepted": picked,
+            "rejected": rejected, "weaknesses": weak}
+    if db is not None:
+        info["proposal_id"] = db.execute(
+            "INSERT INTO research_proposals(created_at,proposer,summary,raw,weaknesses,accepted,rejected,secs) "
+            "VALUES(?,?,?,?,?,?,?,?)", (time.time(), "qwen", rec["summary"], json.dumps(out, ensure_ascii=False),
+                                         json.dumps(weak, ensure_ascii=False), json.dumps(picked),
+                                         json.dumps(rejected, ensure_ascii=False), info["secs"])).lastrowid
+    return [(x, f"اقتراح Qwen: {why}") for x in picked], info
 
 
 def run_cycle(core, use_llm: bool = True) -> dict:
     db, s = core.db, core.s
     started = time.time()
     _status(db, state="running", stage="1/9 جمع البيانات المُتحقق منها", started=started, progress=0)
+    from . import forward
+    forward_results = forward.evaluate_all(db, core.registry, s)   # pre-registered tests: score new data only
     inventory = db.all("SELECT market, source, count(*) n, min(ts) first, max(ts) last FROM bars1s GROUP BY market, source")
 
     _status(db, stage="2/9 تقييم التوقعات السابقة")
@@ -89,8 +142,8 @@ def run_cycle(core, use_llm: bool = True) -> dict:
     llm_info, extra = {"used": False}, []
     if use_llm:
         summary = {"published_signals": perf["overall_signals"], "candidates": perf["overall_candidates"],
-                   "errors": errors, "rule_hypotheses": [h[0] for h in rule]}
-        extra, llm_info = llm_hypotheses(core.llm, summary)
+                   "failures": failure_summary(db), "rule_hypotheses": [h[0] for h in rule]}
+        extra, llm_info = llm_hypotheses(core.llm, summary, db)
     # Slot order: the permanent 'base' comparison, then ONE LLM proposal not already covered (so
     # Qwen's suggestion is actually tested — found in production that rule hypotheses filled every
     # slot), then rule hypotheses, capped at MAX_SPECS (each spec tightens the correction).
@@ -124,7 +177,8 @@ def run_cycle(core, use_llm: bool = True) -> dict:
         "results": [{k: r.get(k) for k in ("market", "duration", "spec", "status", "validated", "test_accuracy",
                                            "threshold", "note", "samples")} for r in results],
         "promoted": [{k: r.get(k) for k in ("market", "duration", "spec", "model_id", "note")} for r in promoted],
-        "rollback": "متاح يدويًا (صفحة الأداء) وتلقائيًا عند تدهور الأداء الحي"}
+        "rollback": "متاح يدويًا (صفحة الأداء) وتلقائيًا عند تدهور الأداء الحي",
+        "forward_tests": forward_results}
     db.kv_set("research_last", report)
     _status(db, state="idle", stage="9/9 اكتملت الدورة", progress=1.0, finished=report["finished"],
             promoted=len(promoted), tested=len(results))
