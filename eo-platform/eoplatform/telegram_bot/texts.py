@@ -373,6 +373,21 @@ def sig_nodata_text(idx: int) -> str:
             "لا تُعرض إشارة دون سعر فعلي.")
 
 
+def sig_demo_text(idx: int) -> str:
+    """UI PREVIEW ONLY for a market without a real feed. Shows the owner's layout with a
+    placeholder direction/time, CLEARLY marked as a sample — it is not a trading signal and
+    uses no real price, so it cannot be mistaken for one."""
+    name, emoji, _ = SIG_MENU[idx]
+    dur = list(SIG_DUR_AR.values())[idx % len(SIG_DUR_AR)]        # deterministic placeholder, not analysis
+    direction = "🔴 الصفقة : بيع / Sell" if idx % 2 else "🟢 الصفقة : شراء / Buy"
+    return "\n\n".join([
+        f"📊 السوق : {esc(name)} {emoji}",
+        f"⏱️ الوقت : {dur}",
+        direction,
+        "🧪 <b>عيّنة لتجربة شكل الواجهة فقط</b> — ليست إشارة، ولا سعر حقيقي، ولا تحليل.",
+    ])
+
+
 def sig_result_text(r: dict) -> str:
     label, emoji = SIG_LABEL.get(r["market"], (r.get("market_name") or r["market"], "📊"))
     name = label
