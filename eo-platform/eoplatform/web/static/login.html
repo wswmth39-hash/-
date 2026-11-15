@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>تسجيل الدخول — منصة التحليل</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="login">
+  <div class="card">
+    <h2>منصة تحليل ExpertOption بالذكاء الاصطناعي</h2>
+    <p class="muted small">إشارات وتداول ورقي فقط — لا تُنفَّذ أي صفقة حقيقية.</p>
+    <form id="f">
+      <label class="small muted" for="u">اسم المستخدم</label>
+      <input id="u" type="text" autocomplete="username" required value="admin">
+      <label class="small muted" for="p">كلمة المرور</label>
+      <input id="p" type="password" autocomplete="current-password" required>
+      <button class="btn big" type="submit">دخول</button>
+      <p id="err" class="small" role="alert"></p>
+    </form>
+  </div>
+</div>
+<script src="/static/login.js"></script>
+</body>
+</html>

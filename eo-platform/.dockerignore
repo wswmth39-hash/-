@@ -1,0 +1,6 @@
+var/
+.env
+**/__pycache__
+tests/
+vendor/TradingAgents/tests
+vendor/TradingAgents/assets

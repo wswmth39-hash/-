@@ -1,0 +1,5986 @@
+{
+ "lockbox_start": 1794682068.496918,
+ "required_accuracy": 0.5655555555555556,
+ "family": 160,
+ "z": 3.6047113948644247,
+ "exec_delay_s": 1,
+ "rows": [
+  {
+   "market": "BTCUSD",
+   "duration": 30,
+   "spec": "base",
+   "dev_validated": false,
+   "dev_trades": 159,
+   "dev_acc": 0.5472,
+   "dev_lb_family": 0.4067,
+   "dev_reasons": [
+    "only 159 independent out-of-sample trades (< 200)",
+    "lower bound 0.4067 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     98,
+     0.49
+    ],
+    [
+     61,
+     0.639
+    ]
+   ],
+   "lockbox_threshold": 0.12,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5184,
+    "lb95": 0.4871,
+    "lb_family": 0.461
+   },
+   "lockbox_selected": {
+    "n": 273,
+    "acc": 0.5165,
+    "lb95": 0.4574,
+    "lb_family": 0.4092
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 30,
+   "spec": "shallow",
+   "dev_validated": false,
+   "dev_trades": 115,
+   "dev_acc": 0.513,
+   "dev_lb_family": 0.3525,
+   "dev_reasons": [
+    "only 115 independent out-of-sample trades (< 200)",
+    "lower bound 0.3525 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     115,
+     0.513
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5041,
+    "lb95": 0.4728,
+    "lb_family": 0.4468
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 30,
+   "spec": "regularised",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.499,
+    "lb95": 0.4677,
+    "lb_family": 0.4418
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 30,
+   "spec": "no_structure",
+   "dev_validated": false,
+   "dev_trades": 96,
+   "dev_acc": 0.4896,
+   "dev_lb_family": 0.3182,
+   "dev_reasons": [
+    "only 96 independent out-of-sample trades (< 200)",
+    "lower bound 0.3182 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     96,
+     0.49
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5102,
+    "lb95": 0.4789,
+    "lb_family": 0.4529
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 30,
+   "spec": "trend_momentum",
+   "dev_validated": false,
+   "dev_trades": 73,
+   "dev_acc": 0.5479,
+   "dev_lb_family": 0.3471,
+   "dev_reasons": [
+    "only 73 independent out-of-sample trades (< 200)",
+    "lower bound 0.3471 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     40,
+     0.475
+    ],
+    [
+     33,
+     0.636
+    ]
+   ],
+   "lockbox_threshold": 0.12,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.4847,
+    "lb95": 0.4535,
+    "lb_family": 0.4277
+   },
+   "lockbox_selected": {
+    "n": 113,
+    "acc": 0.5664,
+    "lb95": 0.4743,
+    "lb_family": 0.4002
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 30,
+   "spec": "structure_mtf",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5102,
+    "lb95": 0.4789,
+    "lb_family": 0.4529
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 30,
+   "spec": "interactions",
+   "dev_validated": false,
+   "dev_trades": 161,
+   "dev_acc": 0.4907,
+   "dev_lb_family": 0.3548,
+   "dev_reasons": [
+    "only 161 independent out-of-sample trades (< 200)",
+    "lower bound 0.3548 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     74,
+     0.459
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     87,
+     0.517
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5051,
+    "lb95": 0.4738,
+    "lb_family": 0.4478
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 30,
+   "spec": "lightgbm",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.499,
+    "lb95": 0.4677,
+    "lb_family": 0.4418
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 30,
+   "spec": "catboost",
+   "dev_validated": false,
+   "dev_trades": 75,
+   "dev_acc": 0.4667,
+   "dev_lb_family": 0.2798,
+   "dev_reasons": [
+    "only 75 independent out-of-sample trades (< 200)",
+    "lower bound 0.2798 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     75,
+     0.467
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.4918,
+    "lb95": 0.4606,
+    "lb_family": 0.4348
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 30,
+   "spec": "logistic",
+   "dev_validated": false,
+   "dev_trades": 103,
+   "dev_acc": 0.5243,
+   "dev_lb_family": 0.3544,
+   "dev_reasons": [
+    "only 103 independent out-of-sample trades (< 200)",
+    "lower bound 0.3544 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     103,
+     0.524
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.4939,
+    "lb95": 0.4627,
+    "lb_family": 0.4368
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 30,
+   "spec": "RULE_BASELINES",
+   "lockbox": {
+    "momentum_ret3": {
+     "n": 980,
+     "acc": 0.5112,
+     "lb95": 0.4799,
+     "lb_family": 0.4539
+    },
+    "mean_reversion_rsi": {
+     "n": 980,
+     "acc": 0.502,
+     "lb95": 0.4708,
+     "lb_family": 0.4448
+    },
+    "ema_trend": {
+     "n": 980,
+     "acc": 0.4949,
+     "lb95": 0.4637,
+     "lb_family": 0.4378
+    },
+    "specialist_ensemble": {
+     "n": 980,
+     "acc": 0.4857,
+     "lb95": 0.4545,
+     "lb_family": 0.4287
+    },
+    "agent_technical": {
+     "n": 879,
+     "acc": 0.5063,
+     "lb95": 0.4732,
+     "lb_family": 0.4458
+    },
+    "agent_trend": {
+     "n": 954,
+     "acc": 0.4979,
+     "lb95": 0.4662,
+     "lb_family": 0.44
+    },
+    "agent_candles": {
+     "n": 956,
+     "acc": 0.4655,
+     "lb95": 0.4341,
+     "lb_family": 0.4082
+    },
+    "agent_price_action": {
+     "n": 722,
+     "acc": 0.4848,
+     "lb95": 0.4485,
+     "lb_family": 0.4186
+    },
+    "agent_momentum": {
+     "n": 936,
+     "acc": 0.4893,
+     "lb95": 0.4574,
+     "lb_family": 0.431
+    },
+    "agent_liquidity": {
+     "n": 59,
+     "acc": 0.5424,
+     "lb95": 0.4166,
+     "lb_family": 0.3229
+    },
+    "always_majority_of_dev": {
+     "n": 980,
+     "acc": 0.5224,
+     "lb95": 0.4911,
+     "lb_family": 0.465
+    }
+   },
+   "lockbox_trades": 980
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 60,
+   "spec": "base",
+   "dev_validated": false,
+   "dev_trades": 126,
+   "dev_acc": 0.5397,
+   "dev_lb_family": 0.3835,
+   "dev_reasons": [
+    "only 126 independent out-of-sample trades (< 200)",
+    "lower bound 0.3835 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     126,
+     0.54
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.502,
+    "lb95": 0.4579,
+    "lb_family": 0.4216
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 60,
+   "spec": "shallow",
+   "dev_validated": false,
+   "dev_trades": 180,
+   "dev_acc": 0.5278,
+   "dev_lb_family": 0.3964,
+   "dev_reasons": [
+    "only 180 independent out-of-sample trades (< 200)",
+    "lower bound 0.3964 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     72,
+     0.542
+    ],
+    [
+     108,
+     0.519
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.4918,
+    "lb95": 0.4478,
+    "lb_family": 0.4117
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 60,
+   "spec": "regularised",
+   "dev_validated": false,
+   "dev_trades": 135,
+   "dev_acc": 0.5556,
+   "dev_lb_family": 0.4034,
+   "dev_reasons": [
+    "only 135 independent out-of-sample trades (< 200)",
+    "lower bound 0.4034 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     87,
+     0.517
+    ],
+    [
+     48,
+     0.625
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.4857,
+    "lb95": 0.4417,
+    "lb_family": 0.4058
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 60,
+   "spec": "no_structure",
+   "dev_validated": false,
+   "dev_trades": 188,
+   "dev_acc": 0.4787,
+   "dev_lb_family": 0.3531,
+   "dev_reasons": [
+    "only 188 independent out-of-sample trades (< 200)",
+    "lower bound 0.3531 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     188,
+     0.479
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.502,
+    "lb95": 0.4579,
+    "lb_family": 0.4216
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 60,
+   "spec": "trend_momentum",
+   "dev_validated": false,
+   "dev_trades": 182,
+   "dev_acc": 0.522,
+   "dev_lb_family": 0.3916,
+   "dev_reasons": [
+    "only 182 independent out-of-sample trades (< 200)",
+    "lower bound 0.3916 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     108,
+     0.565
+    ],
+    [
+     74,
+     0.459
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.5061,
+    "lb95": 0.462,
+    "lb_family": 0.4256
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 60,
+   "spec": "structure_mtf",
+   "dev_validated": false,
+   "dev_trades": 76,
+   "dev_acc": 0.4868,
+   "dev_lb_family": 0.2978,
+   "dev_reasons": [
+    "only 76 independent out-of-sample trades (< 200)",
+    "lower bound 0.2978 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     76,
+     0.487
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.4735,
+    "lb95": 0.4296,
+    "lb_family": 0.3939
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 60,
+   "spec": "interactions",
+   "dev_validated": false,
+   "dev_trades": 352,
+   "dev_acc": 0.5199,
+   "dev_lb_family": 0.4249,
+   "dev_reasons": [
+    "lower bound 0.4249 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     163,
+     0.509
+    ],
+    [
+     129,
+     0.543
+    ],
+    [
+     60,
+     0.5
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.4857,
+    "lb95": 0.4417,
+    "lb_family": 0.4058
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 60,
+   "spec": "lightgbm",
+   "dev_validated": false,
+   "dev_trades": 139,
+   "dev_acc": 0.5036,
+   "dev_lb_family": 0.3571,
+   "dev_reasons": [
+    "only 139 independent out-of-sample trades (< 200)",
+    "lower bound 0.3571 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     139,
+     0.504
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.4898,
+    "lb95": 0.4458,
+    "lb_family": 0.4097
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 60,
+   "spec": "catboost",
+   "dev_validated": false,
+   "dev_trades": 347,
+   "dev_acc": 0.5159,
+   "dev_lb_family": 0.4203,
+   "dev_reasons": [
+    "lower bound 0.4203 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     156,
+     0.506
+    ],
+    [
+     76,
+     0.553
+    ],
+    [
+     115,
+     0.504
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.5061,
+    "lb95": 0.462,
+    "lb_family": 0.4256
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 60,
+   "spec": "logistic",
+   "dev_validated": false,
+   "dev_trades": 112,
+   "dev_acc": 0.5,
+   "dev_lb_family": 0.3388,
+   "dev_reasons": [
+    "only 112 independent out-of-sample trades (< 200)",
+    "lower bound 0.3388 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     112,
+     0.5
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.5102,
+    "lb95": 0.466,
+    "lb_family": 0.4296
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 60,
+   "spec": "RULE_BASELINES",
+   "lockbox": {
+    "momentum_ret3": {
+     "n": 490,
+     "acc": 0.4714,
+     "lb95": 0.4276,
+     "lb_family": 0.3919
+    },
+    "mean_reversion_rsi": {
+     "n": 490,
+     "acc": 0.5245,
+     "lb95": 0.4803,
+     "lb_family": 0.4436
+    },
+    "ema_trend": {
+     "n": 490,
+     "acc": 0.4918,
+     "lb95": 0.4478,
+     "lb_family": 0.4117
+    },
+    "specialist_ensemble": {
+     "n": 490,
+     "acc": 0.4755,
+     "lb95": 0.4317,
+     "lb_family": 0.3959
+    },
+    "agent_technical": {
+     "n": 430,
+     "acc": 0.4744,
+     "lb95": 0.4277,
+     "lb_family": 0.3896
+    },
+    "agent_trend": {
+     "n": 483,
+     "acc": 0.4928,
+     "lb95": 0.4484,
+     "lb_family": 0.412
+    },
+    "agent_candles": {
+     "n": 475,
+     "acc": 0.4695,
+     "lb95": 0.425,
+     "lb_family": 0.3888
+    },
+    "agent_price_action": {
+     "n": 358,
+     "acc": 0.4581,
+     "lb95": 0.4072,
+     "lb_family": 0.3663
+    },
+    "agent_momentum": {
+     "n": 462,
+     "acc": 0.4784,
+     "lb95": 0.4332,
+     "lb_family": 0.3963
+    },
+    "agent_liquidity": {
+     "n": 48,
+     "acc": 0.375,
+     "lb95": 0.2522,
+     "lb_family": 0.1766
+    },
+    "always_majority_of_dev": {
+     "n": 490,
+     "acc": 0.5347,
+     "lb95": 0.4904,
+     "lb_family": 0.4536
+    }
+   },
+   "lockbox_trades": 490
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 120,
+   "spec": "base",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.4816,
+    "lb95": 0.4198,
+    "lb_family": 0.3704
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 120,
+   "spec": "shallow",
+   "dev_validated": false,
+   "dev_trades": 82,
+   "dev_acc": 0.4512,
+   "dev_lb_family": 0.2737,
+   "dev_reasons": [
+    "only 82 independent out-of-sample trades (< 200)",
+    "lower bound 0.2737 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     82,
+     0.451
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.498,
+    "lb95": 0.4359,
+    "lb_family": 0.3859
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 120,
+   "spec": "regularised",
+   "dev_validated": false,
+   "dev_trades": 131,
+   "dev_acc": 0.5038,
+   "dev_lb_family": 0.3533,
+   "dev_reasons": [
+    "only 131 independent out-of-sample trades (< 200)",
+    "lower bound 0.3533 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     94,
+     0.5
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     37,
+     0.514
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.4939,
+    "lb95": 0.4319,
+    "lb_family": 0.382
+   },
+   "lockbox_selected": {
+    "n": 136,
+    "acc": 0.4485,
+    "lb95": 0.3675,
+    "lb_family": 0.3061
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 120,
+   "spec": "no_structure",
+   "dev_validated": false,
+   "dev_trades": 71,
+   "dev_acc": 0.4225,
+   "dev_lb_family": 0.2399,
+   "dev_reasons": [
+    "only 71 independent out-of-sample trades (< 200)",
+    "lower bound 0.2399 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     71,
+     0.423
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.4531,
+    "lb95": 0.3919,
+    "lb_family": 0.3437
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 120,
+   "spec": "trend_momentum",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.502,
+    "lb95": 0.4399,
+    "lb_family": 0.3897
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 120,
+   "spec": "structure_mtf",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.502,
+    "lb95": 0.4399,
+    "lb_family": 0.3897
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 120,
+   "spec": "interactions",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.4939,
+    "lb95": 0.4319,
+    "lb_family": 0.382
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 120,
+   "spec": "lightgbm",
+   "dev_validated": false,
+   "dev_trades": 87,
+   "dev_acc": 0.4828,
+   "dev_lb_family": 0.3049,
+   "dev_reasons": [
+    "only 87 independent out-of-sample trades (< 200)",
+    "lower bound 0.3049 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     87,
+     0.483
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.4816,
+    "lb95": 0.4198,
+    "lb_family": 0.3704
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 120,
+   "spec": "catboost",
+   "dev_validated": false,
+   "dev_trades": 94,
+   "dev_acc": 0.4787,
+   "dev_lb_family": 0.3072,
+   "dev_reasons": [
+    "only 94 independent out-of-sample trades (< 200)",
+    "lower bound 0.3072 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     94,
+     0.479
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.4939,
+    "lb95": 0.4319,
+    "lb_family": 0.382
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 120,
+   "spec": "logistic",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.5224,
+    "lb95": 0.46,
+    "lb_family": 0.4092
+   }
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 120,
+   "spec": "RULE_BASELINES",
+   "lockbox": {
+    "momentum_ret3": {
+     "n": 245,
+     "acc": 0.4898,
+     "lb95": 0.4278,
+     "lb_family": 0.3781
+    },
+    "mean_reversion_rsi": {
+     "n": 245,
+     "acc": 0.4857,
+     "lb95": 0.4238,
+     "lb_family": 0.3743
+    },
+    "ema_trend": {
+     "n": 245,
+     "acc": 0.4816,
+     "lb95": 0.4198,
+     "lb_family": 0.3704
+    },
+    "specialist_ensemble": {
+     "n": 245,
+     "acc": 0.5143,
+     "lb95": 0.452,
+     "lb_family": 0.4014
+    },
+    "agent_technical": {
+     "n": 225,
+     "acc": 0.4844,
+     "lb95": 0.42,
+     "lb_family": 0.3685
+    },
+    "agent_trend": {
+     "n": 237,
+     "acc": 0.4768,
+     "lb95": 0.4141,
+     "lb_family": 0.3641
+    },
+    "agent_candles": {
+     "n": 240,
+     "acc": 0.5542,
+     "lb95": 0.4909,
+     "lb_family": 0.4387
+    },
+    "agent_price_action": {
+     "n": 171,
+     "acc": 0.5556,
+     "lb95": 0.4807,
+     "lb_family": 0.4195
+    },
+    "agent_momentum": {
+     "n": 227,
+     "acc": 0.5022,
+     "lb95": 0.4377,
+     "lb_family": 0.3857
+    },
+    "agent_liquidity": {
+     "n": 29,
+     "acc": 0.6207,
+     "lb95": 0.44,
+     "lb_family": 0.3109
+    },
+    "always_majority_of_dev": {
+     "n": 245,
+     "acc": 0.5347,
+     "lb95": 0.4722,
+     "lb_family": 0.421
+    }
+   },
+   "lockbox_trades": 245
+  },
+  {
+   "market": "BTCUSD",
+   "duration": 300,
+   "status": "insufficient data",
+   "dev": 1452,
+   "lockbox": 486
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 30,
+   "spec": "base",
+   "dev_validated": false,
+   "dev_trades": 255,
+   "dev_acc": 0.5647,
+   "dev_lb_family": 0.4524,
+   "dev_reasons": [
+    "lower bound 0.4524 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     78,
+     0.615
+    ],
+    [
+     177,
+     0.542
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5439,
+    "lb95": 0.5126,
+    "lb_family": 0.4863
+   },
+   "lockbox_selected": {
+    "n": 600,
+    "acc": 0.5367,
+    "lb95": 0.4967,
+    "lb_family": 0.4633
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 30,
+   "spec": "shallow",
+   "dev_validated": false,
+   "dev_trades": 212,
+   "dev_acc": 0.5943,
+   "dev_lb_family": 0.4708,
+   "dev_reasons": [
+    "lower bound 0.4708 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     112,
+     0.643
+    ],
+    [
+     100,
+     0.54
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5286,
+    "lb95": 0.4973,
+    "lb_family": 0.4711
+   },
+   "lockbox_selected": {
+    "n": 394,
+    "acc": 0.5406,
+    "lb95": 0.4912,
+    "lb_family": 0.4503
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 30,
+   "spec": "regularised",
+   "dev_validated": false,
+   "dev_trades": 248,
+   "dev_acc": 0.496,
+   "dev_lb_family": 0.3846,
+   "dev_reasons": [
+    "lower bound 0.3846 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     138,
+     0.478
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     110,
+     0.518
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5204,
+    "lb95": 0.4891,
+    "lb_family": 0.463
+   },
+   "lockbox_selected": {
+    "n": 402,
+    "acc": 0.5348,
+    "lb95": 0.486,
+    "lb_family": 0.4455
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 30,
+   "spec": "no_structure",
+   "dev_validated": false,
+   "dev_trades": 119,
+   "dev_acc": 0.5126,
+   "dev_lb_family": 0.3545,
+   "dev_reasons": [
+    "only 119 independent out-of-sample trades (< 200)",
+    "lower bound 0.3545 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     119,
+     0.513
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5327,
+    "lb95": 0.5013,
+    "lb_family": 0.4752
+   },
+   "lockbox_selected": {
+    "n": 422,
+    "acc": 0.5261,
+    "lb95": 0.4784,
+    "lb_family": 0.439
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 30,
+   "spec": "trend_momentum",
+   "dev_validated": false,
+   "dev_trades": 142,
+   "dev_acc": 0.5352,
+   "dev_lb_family": 0.3878,
+   "dev_reasons": [
+    "only 142 independent out-of-sample trades (< 200)",
+    "lower bound 0.3878 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     142,
+     0.535
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5357,
+    "lb95": 0.5044,
+    "lb_family": 0.4782
+   },
+   "lockbox_selected": {
+    "n": 446,
+    "acc": 0.5247,
+    "lb95": 0.4783,
+    "lb_family": 0.4399
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 30,
+   "spec": "structure_mtf",
+   "dev_validated": false,
+   "dev_trades": 137,
+   "dev_acc": 0.5912,
+   "dev_lb_family": 0.4384,
+   "dev_reasons": [
+    "only 137 independent out-of-sample trades (< 200)",
+    "lower bound 0.4384 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     57,
+     0.684
+    ],
+    [
+     80,
+     0.525
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5122,
+    "lb95": 0.481,
+    "lb_family": 0.4549
+   },
+   "lockbox_selected": {
+    "n": 278,
+    "acc": 0.518,
+    "lb95": 0.4594,
+    "lb_family": 0.4116
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 30,
+   "spec": "interactions",
+   "dev_validated": false,
+   "dev_trades": 185,
+   "dev_acc": 0.5568,
+   "dev_lb_family": 0.4257,
+   "dev_reasons": [
+    "only 185 independent out-of-sample trades (< 200)",
+    "lower bound 0.4257 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     71,
+     0.62
+    ],
+    [
+     114,
+     0.518
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5286,
+    "lb95": 0.4973,
+    "lb_family": 0.4711
+   },
+   "lockbox_selected": {
+    "n": 397,
+    "acc": 0.5365,
+    "lb95": 0.4874,
+    "lb_family": 0.4466
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 30,
+   "spec": "lightgbm",
+   "dev_validated": false,
+   "dev_trades": 140,
+   "dev_acc": 0.4857,
+   "dev_lb_family": 0.3413,
+   "dev_reasons": [
+    "only 140 independent out-of-sample trades (< 200)",
+    "lower bound 0.3413 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     140,
+     0.486
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5163,
+    "lb95": 0.485,
+    "lb_family": 0.4589
+   },
+   "lockbox_selected": {
+    "n": 499,
+    "acc": 0.5411,
+    "lb95": 0.4972,
+    "lb_family": 0.4606
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 30,
+   "spec": "catboost",
+   "dev_validated": false,
+   "dev_trades": 187,
+   "dev_acc": 0.5294,
+   "dev_lb_family": 0.4003,
+   "dev_reasons": [
+    "only 187 independent out-of-sample trades (< 200)",
+    "lower bound 0.4003 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     187,
+     0.529
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5296,
+    "lb95": 0.4983,
+    "lb_family": 0.4721
+   },
+   "lockbox_selected": {
+    "n": 575,
+    "acc": 0.5357,
+    "lb95": 0.4948,
+    "lb_family": 0.4607
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 30,
+   "spec": "logistic",
+   "dev_validated": false,
+   "dev_trades": 168,
+   "dev_acc": 0.5476,
+   "dev_lb_family": 0.4108,
+   "dev_reasons": [
+    "only 168 independent out-of-sample trades (< 200)",
+    "lower bound 0.4108 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     49,
+     0.571
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     119,
+     0.538
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 980,
+    "acc": 0.5031,
+    "lb95": 0.4718,
+    "lb_family": 0.4458
+   },
+   "lockbox_selected": {
+    "n": 434,
+    "acc": 0.5714,
+    "lb95": 0.5244,
+    "lb_family": 0.485
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 30,
+   "spec": "RULE_BASELINES",
+   "lockbox": {
+    "momentum_ret3": {
+     "n": 980,
+     "acc": 0.501,
+     "lb95": 0.4698,
+     "lb_family": 0.4438
+    },
+    "mean_reversion_rsi": {
+     "n": 980,
+     "acc": 0.5041,
+     "lb95": 0.4728,
+     "lb_family": 0.4468
+    },
+    "ema_trend": {
+     "n": 980,
+     "acc": 0.4827,
+     "lb95": 0.4515,
+     "lb_family": 0.4257
+    },
+    "specialist_ensemble": {
+     "n": 980,
+     "acc": 0.4959,
+     "lb95": 0.4647,
+     "lb_family": 0.4388
+    },
+    "agent_technical": {
+     "n": 890,
+     "acc": 0.5,
+     "lb95": 0.4672,
+     "lb_family": 0.44
+    },
+    "agent_trend": {
+     "n": 965,
+     "acc": 0.485,
+     "lb95": 0.4536,
+     "lb_family": 0.4276
+    },
+    "agent_candles": {
+     "n": 942,
+     "acc": 0.5085,
+     "lb95": 0.4766,
+     "lb_family": 0.4501
+    },
+    "agent_price_action": {
+     "n": 722,
+     "acc": 0.482,
+     "lb95": 0.4457,
+     "lb_family": 0.4159
+    },
+    "agent_momentum": {
+     "n": 924,
+     "acc": 0.4946,
+     "lb95": 0.4624,
+     "lb_family": 0.4358
+    },
+    "agent_liquidity": {
+     "n": 63,
+     "acc": 0.4603,
+     "lb95": 0.3431,
+     "lb_family": 0.2609
+    },
+    "always_majority_of_dev": {
+     "n": 980,
+     "acc": 0.5071,
+     "lb95": 0.4759,
+     "lb_family": 0.4499
+    }
+   },
+   "lockbox_trades": 980
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 60,
+   "spec": "base",
+   "dev_validated": false,
+   "dev_trades": 53,
+   "dev_acc": 0.6226,
+   "dev_lb_family": 0.3821,
+   "dev_reasons": [
+    "only 53 independent out-of-sample trades (< 200)",
+    "lower bound 0.3821 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     53,
+     0.623
+    ]
+   ],
+   "lockbox_threshold": 0.12,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.5082,
+    "lb95": 0.464,
+    "lb_family": 0.4276
+   },
+   "lockbox_selected": {
+    "n": 158,
+    "acc": 0.4557,
+    "lb95": 0.38,
+    "lb_family": 0.3217
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 60,
+   "spec": "shallow",
+   "dev_validated": false,
+   "dev_trades": 33,
+   "dev_acc": 0.6667,
+   "dev_lb_family": 0.3646,
+   "dev_reasons": [
+    "only 33 independent out-of-sample trades (< 200)",
+    "lower bound 0.3646 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     33,
+     0.667
+    ]
+   ],
+   "lockbox_threshold": 0.12,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.5122,
+    "lb95": 0.4681,
+    "lb_family": 0.4316
+   },
+   "lockbox_selected": {
+    "n": 126,
+    "acc": 0.4683,
+    "lb95": 0.3834,
+    "lb_family": 0.3186
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 60,
+   "spec": "regularised",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.5102,
+    "lb95": 0.466,
+    "lb_family": 0.4296
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 60,
+   "spec": "no_structure",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.502,
+    "lb95": 0.4579,
+    "lb_family": 0.4216
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 60,
+   "spec": "trend_momentum",
+   "dev_validated": false,
+   "dev_trades": 111,
+   "dev_acc": 0.5676,
+   "dev_lb_family": 0.4,
+   "dev_reasons": [
+    "only 111 independent out-of-sample trades (< 200)",
+    "lower bound 0.4 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     77,
+     0.571
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     34,
+     0.559
+    ]
+   ],
+   "lockbox_threshold": 0.12,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.5061,
+    "lb95": 0.462,
+    "lb_family": 0.4256
+   },
+   "lockbox_selected": {
+    "n": 100,
+    "acc": 0.51,
+    "lb95": 0.4135,
+    "lb_family": 0.3393
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 60,
+   "spec": "structure_mtf",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.5061,
+    "lb95": 0.462,
+    "lb_family": 0.4256
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 60,
+   "spec": "interactions",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.5122,
+    "lb95": 0.4681,
+    "lb_family": 0.4316
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 60,
+   "spec": "lightgbm",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.5082,
+    "lb95": 0.464,
+    "lb_family": 0.4276
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 60,
+   "spec": "catboost",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.5102,
+    "lb95": 0.466,
+    "lb_family": 0.4296
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 60,
+   "spec": "logistic",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 490,
+    "acc": 0.4898,
+    "lb95": 0.4458,
+    "lb_family": 0.4097
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 60,
+   "spec": "RULE_BASELINES",
+   "lockbox": {
+    "momentum_ret3": {
+     "n": 490,
+     "acc": 0.4755,
+     "lb95": 0.4317,
+     "lb_family": 0.3959
+    },
+    "mean_reversion_rsi": {
+     "n": 490,
+     "acc": 0.4837,
+     "lb95": 0.4397,
+     "lb_family": 0.4038
+    },
+    "ema_trend": {
+     "n": 490,
+     "acc": 0.5041,
+     "lb95": 0.46,
+     "lb_family": 0.4236
+    },
+    "specialist_ensemble": {
+     "n": 490,
+     "acc": 0.4918,
+     "lb95": 0.4478,
+     "lb_family": 0.4117
+    },
+    "agent_technical": {
+     "n": 439,
+     "acc": 0.4624,
+     "lb95": 0.4163,
+     "lb_family": 0.379
+    },
+    "agent_trend": {
+     "n": 473,
+     "acc": 0.5053,
+     "lb95": 0.4604,
+     "lb_family": 0.4234
+    },
+    "agent_candles": {
+     "n": 475,
+     "acc": 0.4905,
+     "lb95": 0.4458,
+     "lb_family": 0.4092
+    },
+    "agent_price_action": {
+     "n": 353,
+     "acc": 0.4958,
+     "lb95": 0.4439,
+     "lb_family": 0.4017
+    },
+    "agent_momentum": {
+     "n": 451,
+     "acc": 0.4878,
+     "lb95": 0.442,
+     "lb_family": 0.4045
+    },
+    "agent_liquidity": {
+     "n": 35,
+     "acc": 0.4,
+     "lb95": 0.2555,
+     "lb_family": 0.1707
+    },
+    "always_majority_of_dev": {
+     "n": 490,
+     "acc": 0.5245,
+     "lb95": 0.4803,
+     "lb_family": 0.4436
+    }
+   },
+   "lockbox_trades": 490
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 120,
+   "spec": "base",
+   "dev_validated": false,
+   "dev_trades": 190,
+   "dev_acc": 0.5632,
+   "dev_lb_family": 0.4336,
+   "dev_reasons": [
+    "only 190 independent out-of-sample trades (< 200)",
+    "lower bound 0.4336 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     60,
+     0.65
+    ],
+    [
+     67,
+     0.522
+    ],
+    [
+     63,
+     0.524
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.4694,
+    "lb95": 0.4079,
+    "lb_family": 0.3589
+   },
+   "lockbox_selected": {
+    "n": 178,
+    "acc": 0.4607,
+    "lb95": 0.3891,
+    "lb_family": 0.3333
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 120,
+   "spec": "shallow",
+   "dev_validated": false,
+   "dev_trades": 84,
+   "dev_acc": 0.4643,
+   "dev_lb_family": 0.2865,
+   "dev_reasons": [
+    "only 84 independent out-of-sample trades (< 200)",
+    "lower bound 0.2865 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     84,
+     0.464
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.4694,
+    "lb95": 0.4079,
+    "lb_family": 0.3589
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 120,
+   "spec": "regularised",
+   "dev_validated": false,
+   "dev_trades": 173,
+   "dev_acc": 0.5145,
+   "dev_lb_family": 0.3813,
+   "dev_reasons": [
+    "only 173 independent out-of-sample trades (< 200)",
+    "lower bound 0.3813 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     94,
+     0.532
+    ],
+    [
+     79,
+     0.494
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.498,
+    "lb95": 0.4359,
+    "lb_family": 0.3859
+   },
+   "lockbox_selected": {
+    "n": 201,
+    "acc": 0.4627,
+    "lb95": 0.3951,
+    "lb_family": 0.3421
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 120,
+   "spec": "no_structure",
+   "dev_validated": false,
+   "dev_trades": 269,
+   "dev_acc": 0.539,
+   "dev_lb_family": 0.4302,
+   "dev_reasons": [
+    "lower bound 0.4302 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     94,
+     0.574
+    ],
+    [
+     94,
+     0.511
+    ],
+    [
+     81,
+     0.531
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.4571,
+    "lb95": 0.3959,
+    "lb_family": 0.3475
+   },
+   "lockbox_selected": {
+    "n": 197,
+    "acc": 0.4619,
+    "lb95": 0.3937,
+    "lb_family": 0.3402
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 120,
+   "spec": "trend_momentum",
+   "dev_validated": false,
+   "dev_trades": 152,
+   "dev_acc": 0.5,
+   "dev_lb_family": 0.3597,
+   "dev_reasons": [
+    "only 152 independent out-of-sample trades (< 200)",
+    "lower bound 0.3597 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     94,
+     0.511
+    ],
+    [
+     58,
+     0.483
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.4653,
+    "lb95": 0.4039,
+    "lb_family": 0.3551
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 120,
+   "spec": "structure_mtf",
+   "dev_validated": false,
+   "dev_trades": 275,
+   "dev_acc": 0.5564,
+   "dev_lb_family": 0.4483,
+   "dev_reasons": [
+    "lower bound 0.4483 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     94,
+     0.617
+    ],
+    [
+     87,
+     0.54
+    ],
+    [
+     94,
+     0.511
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.4612,
+    "lb95": 0.3999,
+    "lb_family": 0.3513
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 120,
+   "spec": "interactions",
+   "dev_validated": false,
+   "dev_trades": 158,
+   "dev_acc": 0.557,
+   "dev_lb_family": 0.4156,
+   "dev_reasons": [
+    "only 158 independent out-of-sample trades (< 200)",
+    "lower bound 0.4156 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     64,
+     0.625
+    ],
+    [
+     94,
+     0.511
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.498,
+    "lb95": 0.4359,
+    "lb_family": 0.3859
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 120,
+   "spec": "lightgbm",
+   "dev_validated": false,
+   "dev_trades": 280,
+   "dev_acc": 0.5286,
+   "dev_lb_family": 0.4222,
+   "dev_reasons": [
+    "lower bound 0.4222 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/4 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     53,
+     0.472
+    ],
+    [
+     74,
+     0.581
+    ],
+    [
+     94,
+     0.5
+    ],
+    [
+     59,
+     0.559
+    ]
+   ],
+   "lockbox_threshold": 0.12,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.498,
+    "lb95": 0.4359,
+    "lb_family": 0.3859
+   },
+   "lockbox_selected": {
+    "n": 166,
+    "acc": 0.4699,
+    "lb95": 0.3955,
+    "lb_family": 0.3376
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 120,
+   "spec": "catboost",
+   "dev_validated": false,
+   "dev_trades": 94,
+   "dev_acc": 0.4894,
+   "dev_lb_family": 0.3164,
+   "dev_reasons": [
+    "only 94 independent out-of-sample trades (< 200)",
+    "lower bound 0.3164 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     94,
+     0.489
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.4612,
+    "lb95": 0.3999,
+    "lb_family": 0.3513
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 120,
+   "spec": "logistic",
+   "dev_validated": false,
+   "dev_trades": 57,
+   "dev_acc": 0.5439,
+   "dev_lb_family": 0.321,
+   "dev_reasons": [
+    "only 57 independent out-of-sample trades (< 200)",
+    "lower bound 0.321 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     57,
+     0.544
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 245,
+    "acc": 0.4939,
+    "lb95": 0.4319,
+    "lb_family": 0.382
+   },
+   "lockbox_selected": {
+    "n": 166,
+    "acc": 0.494,
+    "lb95": 0.4189,
+    "lb_family": 0.3597
+   }
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 120,
+   "spec": "RULE_BASELINES",
+   "lockbox": {
+    "momentum_ret3": {
+     "n": 245,
+     "acc": 0.4816,
+     "lb95": 0.4198,
+     "lb_family": 0.3704
+    },
+    "mean_reversion_rsi": {
+     "n": 245,
+     "acc": 0.4694,
+     "lb95": 0.4079,
+     "lb_family": 0.3589
+    },
+    "ema_trend": {
+     "n": 245,
+     "acc": 0.5388,
+     "lb95": 0.4762,
+     "lb_family": 0.4249
+    },
+    "specialist_ensemble": {
+     "n": 245,
+     "acc": 0.5143,
+     "lb95": 0.452,
+     "lb_family": 0.4014
+    },
+    "agent_technical": {
+     "n": 216,
+     "acc": 0.4583,
+     "lb95": 0.3932,
+     "lb_family": 0.342
+    },
+    "agent_trend": {
+     "n": 233,
+     "acc": 0.5279,
+     "lb95": 0.4639,
+     "lb_family": 0.4117
+    },
+    "agent_candles": {
+     "n": 237,
+     "acc": 0.519,
+     "lb95": 0.4556,
+     "lb_family": 0.4041
+    },
+    "agent_price_action": {
+     "n": 165,
+     "acc": 0.5394,
+     "lb95": 0.4633,
+     "lb_family": 0.4018
+    },
+    "agent_momentum": {
+     "n": 225,
+     "acc": 0.4978,
+     "lb95": 0.433,
+     "lb_family": 0.3811
+    },
+    "agent_liquidity": {
+     "n": 29,
+     "acc": 0.3103,
+     "lb95": 0.1728,
+     "lb_family": 0.1051
+    },
+    "always_majority_of_dev": {
+     "n": 245,
+     "acc": 0.5224,
+     "lb95": 0.46,
+     "lb_family": 0.4092
+    }
+   },
+   "lockbox_trades": 245
+  },
+  {
+   "market": "ETHUSD",
+   "duration": 300,
+   "status": "insufficient data",
+   "dev": 1448,
+   "lockbox": 486
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 30,
+   "spec": "base",
+   "dev_validated": false,
+   "dev_trades": 334,
+   "dev_acc": 0.512,
+   "dev_lb_family": 0.4148,
+   "dev_reasons": [
+    "lower bound 0.4148 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     168,
+     0.518
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     166,
+     0.506
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 968,
+    "acc": 0.499,
+    "lb95": 0.4675,
+    "lb_family": 0.4414
+   },
+   "lockbox_selected": {
+    "n": 517,
+    "acc": 0.4932,
+    "lb95": 0.4503,
+    "lb_family": 0.4151
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 30,
+   "spec": "shallow",
+   "dev_validated": false,
+   "dev_trades": 345,
+   "dev_acc": 0.513,
+   "dev_lb_family": 0.4173,
+   "dev_reasons": [
+    "lower bound 0.4173 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     138,
+     0.507
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     207,
+     0.517
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 968,
+    "acc": 0.4866,
+    "lb95": 0.4552,
+    "lb_family": 0.4292
+   },
+   "lockbox_selected": {
+    "n": 630,
+    "acc": 0.4937,
+    "lb95": 0.4548,
+    "lb_family": 0.4227
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 30,
+   "spec": "regularised",
+   "dev_validated": false,
+   "dev_trades": 390,
+   "dev_acc": 0.5231,
+   "dev_lb_family": 0.4326,
+   "dev_reasons": [
+    "lower bound 0.4326 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     232,
+     0.53
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     158,
+     0.513
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 968,
+    "acc": 0.5093,
+    "lb95": 0.4778,
+    "lb_family": 0.4516
+   },
+   "lockbox_selected": {
+    "n": 500,
+    "acc": 0.514,
+    "lb95": 0.4703,
+    "lb_family": 0.4341
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 30,
+   "spec": "no_structure",
+   "dev_validated": false,
+   "dev_trades": 576,
+   "dev_acc": 0.5365,
+   "dev_lb_family": 0.4616,
+   "dev_reasons": [
+    "lower bound 0.4616 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     218,
+     0.477
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     144,
+     0.597
+    ],
+    [
+     214,
+     0.556
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 968,
+    "acc": 0.499,
+    "lb95": 0.4675,
+    "lb_family": 0.4414
+   },
+   "lockbox_selected": {
+    "n": 672,
+    "acc": 0.506,
+    "lb95": 0.4682,
+    "lb_family": 0.437
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 30,
+   "spec": "trend_momentum",
+   "dev_validated": false,
+   "dev_trades": 358,
+   "dev_acc": 0.4916,
+   "dev_lb_family": 0.3984,
+   "dev_reasons": [
+    "lower bound 0.3984 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     173,
+     0.48
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     185,
+     0.503
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 968,
+    "acc": 0.5052,
+    "lb95": 0.4737,
+    "lb_family": 0.4476
+   },
+   "lockbox_selected": {
+    "n": 499,
+    "acc": 0.523,
+    "lb95": 0.4792,
+    "lb_family": 0.4429
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 30,
+   "spec": "structure_mtf",
+   "dev_validated": false,
+   "dev_trades": 284,
+   "dev_acc": 0.5458,
+   "dev_lb_family": 0.4396,
+   "dev_reasons": [
+    "lower bound 0.4396 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     153,
+     0.542
+    ],
+    [
+     131,
+     0.55
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 968,
+    "acc": 0.4959,
+    "lb95": 0.4644,
+    "lb_family": 0.4384
+   },
+   "lockbox_selected": {
+    "n": 408,
+    "acc": 0.4877,
+    "lb95": 0.4396,
+    "lb_family": 0.4003
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 30,
+   "spec": "interactions",
+   "dev_validated": false,
+   "dev_trades": 250,
+   "dev_acc": 0.568,
+   "dev_lb_family": 0.4545,
+   "dev_reasons": [
+    "lower bound 0.4545 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     93,
+     0.624
+    ],
+    [
+     157,
+     0.535
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 968,
+    "acc": 0.4866,
+    "lb95": 0.4552,
+    "lb_family": 0.4292
+   },
+   "lockbox_selected": {
+    "n": 508,
+    "acc": 0.4941,
+    "lb95": 0.4508,
+    "lb_family": 0.4153
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 30,
+   "spec": "lightgbm",
+   "dev_validated": false,
+   "dev_trades": 317,
+   "dev_acc": 0.5016,
+   "dev_lb_family": 0.4023,
+   "dev_reasons": [
+    "lower bound 0.4023 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     136,
+     0.522
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     181,
+     0.486
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 968,
+    "acc": 0.4969,
+    "lb95": 0.4655,
+    "lb_family": 0.4394
+   },
+   "lockbox_selected": {
+    "n": 541,
+    "acc": 0.5046,
+    "lb95": 0.4626,
+    "lb_family": 0.4279
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 30,
+   "spec": "catboost",
+   "dev_validated": false,
+   "dev_trades": 264,
+   "dev_acc": 0.5492,
+   "dev_lb_family": 0.4391,
+   "dev_reasons": [
+    "lower bound 0.4391 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     100,
+     0.54
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     164,
+     0.555
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 968,
+    "acc": 0.5103,
+    "lb95": 0.4789,
+    "lb_family": 0.4527
+   },
+   "lockbox_selected": {
+    "n": 463,
+    "acc": 0.5011,
+    "lb95": 0.4557,
+    "lb_family": 0.4184
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 30,
+   "spec": "logistic",
+   "dev_validated": false,
+   "dev_trades": 177,
+   "dev_acc": 0.4633,
+   "dev_lb_family": 0.3354,
+   "dev_reasons": [
+    "only 177 independent out-of-sample trades (< 200)",
+    "lower bound 0.3354 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     177,
+     0.463
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 968,
+    "acc": 0.5134,
+    "lb95": 0.482,
+    "lb_family": 0.4557
+   },
+   "lockbox_selected": {
+    "n": 567,
+    "acc": 0.515,
+    "lb95": 0.4739,
+    "lb_family": 0.4398
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 30,
+   "spec": "RULE_BASELINES",
+   "lockbox": {
+    "momentum_ret3": {
+     "n": 968,
+     "acc": 0.4711,
+     "lb95": 0.4398,
+     "lb_family": 0.414
+    },
+    "mean_reversion_rsi": {
+     "n": 968,
+     "acc": 0.5165,
+     "lb95": 0.485,
+     "lb_family": 0.4588
+    },
+    "ema_trend": {
+     "n": 968,
+     "acc": 0.4969,
+     "lb95": 0.4655,
+     "lb_family": 0.4394
+    },
+    "specialist_ensemble": {
+     "n": 968,
+     "acc": 0.4886,
+     "lb95": 0.4573,
+     "lb_family": 0.4313
+    },
+    "agent_technical": {
+     "n": 862,
+     "acc": 0.4594,
+     "lb95": 0.4264,
+     "lb_family": 0.3993
+    },
+    "agent_trend": {
+     "n": 944,
+     "acc": 0.4947,
+     "lb95": 0.4629,
+     "lb_family": 0.4365
+    },
+    "agent_candles": {
+     "n": 843,
+     "acc": 0.4757,
+     "lb95": 0.4422,
+     "lb_family": 0.4145
+    },
+    "agent_price_action": {
+     "n": 679,
+     "acc": 0.4698,
+     "lb95": 0.4325,
+     "lb_family": 0.402
+    },
+    "agent_momentum": {
+     "n": 914,
+     "acc": 0.477,
+     "lb95": 0.4448,
+     "lb_family": 0.4182
+    },
+    "agent_liquidity": {
+     "n": 35,
+     "acc": 0.5143,
+     "lb95": 0.3557,
+     "lb_family": 0.2503
+    },
+    "always_majority_of_dev": {
+     "n": 968,
+     "acc": 0.5021,
+     "lb95": 0.4706,
+     "lb_family": 0.4445
+    }
+   },
+   "lockbox_trades": 968
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 60,
+   "spec": "base",
+   "dev_validated": false,
+   "dev_trades": 485,
+   "dev_acc": 0.5649,
+   "dev_lb_family": 0.4832,
+   "dev_reasons": [
+    "lower bound 0.4832 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     188,
+     0.559
+    ],
+    [
+     181,
+     0.58
+    ],
+    [
+     116,
+     0.552
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 486,
+    "acc": 0.5103,
+    "lb95": 0.4659,
+    "lb_family": 0.4294
+   },
+   "lockbox_selected": {
+    "n": 340,
+    "acc": 0.5088,
+    "lb95": 0.4559,
+    "lb_family": 0.4126
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 60,
+   "spec": "shallow",
+   "dev_validated": false,
+   "dev_trades": 520,
+   "dev_acc": 0.5654,
+   "dev_lb_family": 0.4864,
+   "dev_reasons": [
+    "lower bound 0.4864 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     188,
+     0.564
+    ],
+    [
+     181,
+     0.58
+    ],
+    [
+     151,
+     0.55
+    ]
+   ],
+   "lockbox_threshold": 0.02,
+   "lockbox_all": {
+    "n": 486,
+    "acc": 0.5226,
+    "lb95": 0.4782,
+    "lb_family": 0.4414
+   },
+   "lockbox_selected": {
+    "n": 406,
+    "acc": 0.5172,
+    "lb95": 0.4687,
+    "lb_family": 0.4287
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 60,
+   "spec": "regularised",
+   "dev_validated": false,
+   "dev_trades": 430,
+   "dev_acc": 0.5488,
+   "dev_lb_family": 0.4622,
+   "dev_reasons": [
+    "lower bound 0.4622 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     188,
+     0.537
+    ],
+    [
+     156,
+     0.583
+    ],
+    [
+     86,
+     0.512
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 486,
+    "acc": 0.4918,
+    "lb95": 0.4476,
+    "lb_family": 0.4113
+   },
+   "lockbox_selected": {
+    "n": 261,
+    "acc": 0.4866,
+    "lb95": 0.4266,
+    "lb_family": 0.3784
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 60,
+   "spec": "no_structure",
+   "dev_validated": false,
+   "dev_trades": 497,
+   "dev_acc": 0.5433,
+   "dev_lb_family": 0.4626,
+   "dev_reasons": [
+    "lower bound 0.4626 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     188,
+     0.527
+    ],
+    [
+     181,
+     0.564
+    ],
+    [
+     128,
+     0.539
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 486,
+    "acc": 0.5,
+    "lb95": 0.4557,
+    "lb_family": 0.4193
+   },
+   "lockbox_selected": {
+    "n": 337,
+    "acc": 0.5074,
+    "lb95": 0.4543,
+    "lb_family": 0.4108
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 60,
+   "spec": "trend_momentum",
+   "dev_validated": false,
+   "dev_trades": 477,
+   "dev_acc": 0.5807,
+   "dev_lb_family": 0.4982,
+   "dev_reasons": [
+    "lower bound 0.4982 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     119,
+     0.529
+    ],
+    [
+     181,
+     0.641
+    ],
+    [
+     177,
+     0.554
+    ]
+   ],
+   "lockbox_threshold": 0.0,
+   "lockbox_all": {
+    "n": 486,
+    "acc": 0.5123,
+    "lb95": 0.468,
+    "lb_family": 0.4314
+   },
+   "lockbox_selected": {
+    "n": 486,
+    "acc": 0.5123,
+    "lb95": 0.468,
+    "lb_family": 0.4314
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 60,
+   "spec": "structure_mtf",
+   "dev_validated": false,
+   "dev_trades": 425,
+   "dev_acc": 0.5553,
+   "dev_lb_family": 0.468,
+   "dev_reasons": [
+    "lower bound 0.468 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     188,
+     0.559
+    ],
+    [
+     181,
+     0.536
+    ],
+    [
+     56,
+     0.607
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 486,
+    "acc": 0.5165,
+    "lb95": 0.4721,
+    "lb_family": 0.4354
+   },
+   "lockbox_selected": {
+    "n": 158,
+    "acc": 0.5316,
+    "lb95": 0.454,
+    "lb_family": 0.3917
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 60,
+   "spec": "interactions",
+   "dev_validated": false,
+   "dev_trades": 490,
+   "dev_acc": 0.5796,
+   "dev_lb_family": 0.4982,
+   "dev_reasons": [
+    "lower bound 0.4982 \u2264 required 0.5656",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     188,
+     0.559
+    ],
+    [
+     181,
+     0.602
+    ],
+    [
+     121,
+     0.579
+    ]
+   ],
+   "lockbox_threshold": 0.05,
+   "lockbox_all": {
+    "n": 486,
+    "acc": 0.4979,
+    "lb95": 0.4537,
+    "lb_family": 0.4173
+   },
+   "lockbox_selected": {
+    "n": 345,
+    "acc": 0.5014,
+    "lb95": 0.449,
+    "lb_family": 0.4061
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 60,
+   "spec": "lightgbm",
+   "dev_validated": false,
+   "dev_trades": 463,
+   "dev_acc": 0.5356,
+   "dev_lb_family": 0.4523,
+   "dev_reasons": [
+    "lower bound 0.4523 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     188,
+     0.521
+    ],
+    [
+     181,
+     0.547
+    ],
+    [
+     94,
+     0.543
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 486,
+    "acc": 0.5041,
+    "lb95": 0.4598,
+    "lb_family": 0.4233
+   },
+   "lockbox_selected": {
+    "n": 282,
+    "acc": 0.5035,
+    "lb95": 0.4455,
+    "lb_family": 0.3985
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 60,
+   "spec": "catboost",
+   "dev_validated": false,
+   "dev_trades": 515,
+   "dev_acc": 0.5553,
+   "dev_lb_family": 0.476,
+   "dev_reasons": [
+    "lower bound 0.476 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/3 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     188,
+     0.59
+    ],
+    [
+     181,
+     0.525
+    ],
+    [
+     146,
+     0.548
+    ]
+   ],
+   "lockbox_threshold": 0.02,
+   "lockbox_all": {
+    "n": 486,
+    "acc": 0.4918,
+    "lb95": 0.4476,
+    "lb_family": 0.4113
+   },
+   "lockbox_selected": {
+    "n": 425,
+    "acc": 0.4847,
+    "lb95": 0.4375,
+    "lb_family": 0.3991
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 60,
+   "spec": "logistic",
+   "dev_validated": false,
+   "dev_trades": 150,
+   "dev_acc": 0.5333,
+   "dev_lb_family": 0.3898,
+   "dev_reasons": [
+    "only 150 independent out-of-sample trades (< 200)",
+    "lower bound 0.3898 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     90,
+     0.522
+    ],
+    [
+     60,
+     0.55
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 486,
+    "acc": 0.5021,
+    "lb95": 0.4578,
+    "lb_family": 0.4213
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 60,
+   "spec": "RULE_BASELINES",
+   "lockbox": {
+    "momentum_ret3": {
+     "n": 486,
+     "acc": 0.4918,
+     "lb95": 0.4476,
+     "lb_family": 0.4113
+    },
+    "mean_reversion_rsi": {
+     "n": 486,
+     "acc": 0.4815,
+     "lb95": 0.4374,
+     "lb_family": 0.4013
+    },
+    "ema_trend": {
+     "n": 486,
+     "acc": 0.5391,
+     "lb95": 0.4946,
+     "lb_family": 0.4576
+    },
+    "specialist_ensemble": {
+     "n": 486,
+     "acc": 0.4815,
+     "lb95": 0.4374,
+     "lb_family": 0.4013
+    },
+    "agent_technical": {
+     "n": 437,
+     "acc": 0.4851,
+     "lb95": 0.4386,
+     "lb_family": 0.4006
+    },
+    "agent_trend": {
+     "n": 475,
+     "acc": 0.5389,
+     "lb95": 0.494,
+     "lb_family": 0.4566
+    },
+    "agent_candles": {
+     "n": 455,
+     "acc": 0.4681,
+     "lb95": 0.4227,
+     "lb_family": 0.3859
+    },
+    "agent_price_action": {
+     "n": 341,
+     "acc": 0.4956,
+     "lb95": 0.4429,
+     "lb_family": 0.4
+    },
+    "agent_momentum": {
+     "n": 455,
+     "acc": 0.4989,
+     "lb95": 0.4532,
+     "lb_family": 0.4156
+    },
+    "agent_liquidity": {
+     "n": 25,
+     "acc": 0.32,
+     "lb95": 0.172,
+     "lb_family": 0.1019
+    },
+    "always_majority_of_dev": {
+     "n": 486,
+     "acc": 0.5144,
+     "lb95": 0.47,
+     "lb_family": 0.4334
+    }
+   },
+   "lockbox_trades": 486
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 120,
+   "spec": "base",
+   "dev_validated": false,
+   "dev_trades": 89,
+   "dev_acc": 0.4382,
+   "dev_lb_family": 0.2688,
+   "dev_reasons": [
+    "only 89 independent out-of-sample trades (< 200)",
+    "lower bound 0.2688 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     89,
+     0.438
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5123,
+    "lb95": 0.4499,
+    "lb_family": 0.3993
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 120,
+   "spec": "shallow",
+   "dev_validated": false,
+   "dev_trades": 94,
+   "dev_acc": 0.4468,
+   "dev_lb_family": 0.2799,
+   "dev_reasons": [
+    "only 94 independent out-of-sample trades (< 200)",
+    "lower bound 0.2799 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     94,
+     0.447
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5082,
+    "lb95": 0.4458,
+    "lb_family": 0.3954
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 120,
+   "spec": "regularised",
+   "dev_validated": false,
+   "dev_trades": 173,
+   "dev_acc": 0.4509,
+   "dev_lb_family": 0.3227,
+   "dev_reasons": [
+    "only 173 independent out-of-sample trades (< 200)",
+    "lower bound 0.3227 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     93,
+     0.505
+    ],
+    [
+     80,
+     0.388
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5205,
+    "lb95": 0.458,
+    "lb_family": 0.4071
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 120,
+   "spec": "no_structure",
+   "dev_validated": false,
+   "dev_trades": 49,
+   "dev_acc": 0.4694,
+   "dev_lb_family": 0.2472,
+   "dev_reasons": [
+    "only 49 independent out-of-sample trades (< 200)",
+    "lower bound 0.2472 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     49,
+     0.469
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5164,
+    "lb95": 0.4539,
+    "lb_family": 0.4032
+   },
+   "lockbox_selected": {
+    "n": 140,
+    "acc": 0.5214,
+    "lb95": 0.4392,
+    "lb_family": 0.374
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 120,
+   "spec": "trend_momentum",
+   "dev_validated": false,
+   "dev_trades": 94,
+   "dev_acc": 0.4043,
+   "dev_lb_family": 0.2445,
+   "dev_reasons": [
+    "only 94 independent out-of-sample trades (< 200)",
+    "lower bound 0.2445 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     94,
+     0.404
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5615,
+    "lb95": 0.4987,
+    "lb_family": 0.4467
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 120,
+   "spec": "structure_mtf",
+   "dev_validated": false,
+   "dev_trades": 157,
+   "dev_acc": 0.5032,
+   "dev_lb_family": 0.3647,
+   "dev_reasons": [
+    "only 157 independent out-of-sample trades (< 200)",
+    "lower bound 0.3647 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     93,
+     0.538
+    ],
+    [
+     64,
+     0.453
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5533,
+    "lb95": 0.4906,
+    "lb_family": 0.4388
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 120,
+   "spec": "interactions",
+   "dev_validated": false,
+   "dev_trades": 150,
+   "dev_acc": 0.46,
+   "dev_lb_family": 0.3224,
+   "dev_reasons": [
+    "only 150 independent out-of-sample trades (< 200)",
+    "lower bound 0.3224 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     75,
+     0.507
+    ],
+    [
+     75,
+     0.413
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5041,
+    "lb95": 0.4418,
+    "lb_family": 0.3915
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 120,
+   "spec": "lightgbm",
+   "dev_validated": false,
+   "dev_trades": 87,
+   "dev_acc": 0.4598,
+   "dev_lb_family": 0.2853,
+   "dev_reasons": [
+    "only 87 independent out-of-sample trades (< 200)",
+    "lower bound 0.2853 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     87,
+     0.46
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5369,
+    "lb95": 0.4742,
+    "lb_family": 0.4229
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 120,
+   "spec": "catboost",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5123,
+    "lb95": 0.4499,
+    "lb_family": 0.3993
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 120,
+   "spec": "logistic",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5205,
+    "lb95": 0.458,
+    "lb_family": 0.4071
+   }
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 120,
+   "spec": "RULE_BASELINES",
+   "lockbox": {
+    "momentum_ret3": {
+     "n": 244,
+     "acc": 0.5041,
+     "lb95": 0.4418,
+     "lb_family": 0.3915
+    },
+    "mean_reversion_rsi": {
+     "n": 244,
+     "acc": 0.4713,
+     "lb95": 0.4096,
+     "lb_family": 0.3605
+    },
+    "ema_trend": {
+     "n": 244,
+     "acc": 0.5164,
+     "lb95": 0.4539,
+     "lb_family": 0.4032
+    },
+    "specialist_ensemble": {
+     "n": 244,
+     "acc": 0.541,
+     "lb95": 0.4783,
+     "lb_family": 0.4268
+    },
+    "agent_technical": {
+     "n": 215,
+     "acc": 0.4977,
+     "lb95": 0.4315,
+     "lb_family": 0.3784
+    },
+    "agent_trend": {
+     "n": 232,
+     "acc": 0.5216,
+     "lb95": 0.4574,
+     "lb_family": 0.4054
+    },
+    "agent_candles": {
+     "n": 229,
+     "acc": 0.4934,
+     "lb95": 0.4293,
+     "lb_family": 0.3779
+    },
+    "agent_price_action": {
+     "n": 183,
+     "acc": 0.5191,
+     "lb95": 0.4471,
+     "lb_family": 0.3892
+    },
+    "agent_momentum": {
+     "n": 225,
+     "acc": 0.52,
+     "lb95": 0.4549,
+     "lb_family": 0.4022
+    },
+    "agent_liquidity": {
+     "n": 18,
+     "acc": 0.5556,
+     "lb95": 0.3372,
+     "lb_family": 0.2097
+    },
+    "always_majority_of_dev": {
+     "n": 244,
+     "acc": 0.5,
+     "lb95": 0.4378,
+     "lb_family": 0.3876
+    }
+   },
+   "lockbox_trades": 244
+  },
+  {
+   "market": "LTCUSD",
+   "duration": 300,
+   "status": "insufficient data",
+   "dev": 1400,
+   "lockbox": 478
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 30,
+   "spec": "base",
+   "dev_validated": false,
+   "dev_trades": 115,
+   "dev_acc": 0.4783,
+   "dev_lb_family": 0.3213,
+   "dev_reasons": [
+    "only 115 independent out-of-sample trades (< 200)",
+    "lower bound 0.3213 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     45,
+     0.4
+    ],
+    [
+     70,
+     0.529
+    ]
+   ],
+   "lockbox_threshold": 0.12,
+   "lockbox_all": {
+    "n": 974,
+    "acc": 0.5031,
+    "lb95": 0.4717,
+    "lb_family": 0.4457
+   },
+   "lockbox_selected": {
+    "n": 165,
+    "acc": 0.4848,
+    "lb95": 0.4098,
+    "lb_family": 0.3509
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 30,
+   "spec": "shallow",
+   "dev_validated": false,
+   "dev_trades": 94,
+   "dev_acc": 0.5851,
+   "dev_lb_family": 0.4028,
+   "dev_reasons": [
+    "only 94 independent out-of-sample trades (< 200)",
+    "lower bound 0.4028 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     94,
+     0.585
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 974,
+    "acc": 0.5072,
+    "lb95": 0.4758,
+    "lb_family": 0.4497
+   },
+   "lockbox_selected": {
+    "n": 242,
+    "acc": 0.5207,
+    "lb95": 0.4579,
+    "lb_family": 0.4068
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 30,
+   "spec": "regularised",
+   "dev_validated": false,
+   "dev_trades": 143,
+   "dev_acc": 0.5175,
+   "dev_lb_family": 0.3718,
+   "dev_reasons": [
+    "only 143 independent out-of-sample trades (< 200)",
+    "lower bound 0.3718 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     60,
+     0.467
+    ],
+    [
+     83,
+     0.554
+    ]
+   ],
+   "lockbox_threshold": 0.12,
+   "lockbox_all": {
+    "n": 974,
+    "acc": 0.501,
+    "lb95": 0.4697,
+    "lb_family": 0.4436
+   },
+   "lockbox_selected": {
+    "n": 204,
+    "acc": 0.5196,
+    "lb95": 0.4513,
+    "lb_family": 0.3962
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 30,
+   "spec": "no_structure",
+   "dev_validated": false,
+   "dev_trades": 280,
+   "dev_acc": 0.5429,
+   "dev_lb_family": 0.436,
+   "dev_reasons": [
+    "lower bound 0.436 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     135,
+     0.496
+    ],
+    [
+     145,
+     0.586
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 974,
+    "acc": 0.4918,
+    "lb95": 0.4605,
+    "lb_family": 0.4345
+   },
+   "lockbox_selected": {
+    "n": 404,
+    "acc": 0.4975,
+    "lb95": 0.449,
+    "lb_family": 0.4093
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 30,
+   "spec": "trend_momentum",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 974,
+    "acc": 0.5216,
+    "lb95": 0.4902,
+    "lb_family": 0.464
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 30,
+   "spec": "structure_mtf",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 974,
+    "acc": 0.4938,
+    "lb95": 0.4625,
+    "lb_family": 0.4366
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 30,
+   "spec": "interactions",
+   "dev_validated": false,
+   "dev_trades": 167,
+   "dev_acc": 0.5569,
+   "dev_lb_family": 0.4192,
+   "dev_reasons": [
+    "only 167 independent out-of-sample trades (< 200)",
+    "lower bound 0.4192 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     41,
+     0.488
+    ],
+    [
+     126,
+     0.579
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 974,
+    "acc": 0.501,
+    "lb95": 0.4697,
+    "lb_family": 0.4436
+   },
+   "lockbox_selected": {
+    "n": 348,
+    "acc": 0.5345,
+    "lb95": 0.482,
+    "lb_family": 0.4386
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 30,
+   "spec": "lightgbm",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 974,
+    "acc": 0.5041,
+    "lb95": 0.4728,
+    "lb_family": 0.4467
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 30,
+   "spec": "catboost",
+   "dev_validated": false,
+   "dev_trades": 104,
+   "dev_acc": 0.5385,
+   "dev_lb_family": 0.368,
+   "dev_reasons": [
+    "only 104 independent out-of-sample trades (< 200)",
+    "lower bound 0.368 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/2 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     49,
+     0.49
+    ],
+    [
+     55,
+     0.582
+    ]
+   ],
+   "lockbox_threshold": 0.12,
+   "lockbox_all": {
+    "n": 974,
+    "acc": 0.5051,
+    "lb95": 0.4738,
+    "lb_family": 0.4477
+   },
+   "lockbox_selected": {
+    "n": 199,
+    "acc": 0.4975,
+    "lb95": 0.4287,
+    "lb_family": 0.3739
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 30,
+   "spec": "logistic",
+   "dev_validated": false,
+   "dev_trades": 105,
+   "dev_acc": 0.581,
+   "dev_lb_family": 0.4081,
+   "dev_reasons": [
+    "only 105 independent out-of-sample trades (< 200)",
+    "lower bound 0.4081 \u2264 required 0.5656",
+    "walk-forward inconsistent (1/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     105,
+     0.581
+    ]
+   ],
+   "lockbox_threshold": 0.08,
+   "lockbox_all": {
+    "n": 974,
+    "acc": 0.5103,
+    "lb95": 0.4789,
+    "lb_family": 0.4528
+   },
+   "lockbox_selected": {
+    "n": 338,
+    "acc": 0.5059,
+    "lb95": 0.4528,
+    "lb_family": 0.4095
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 30,
+   "spec": "RULE_BASELINES",
+   "lockbox": {
+    "momentum_ret3": {
+     "n": 974,
+     "acc": 0.4784,
+     "lb95": 0.4472,
+     "lb_family": 0.4214
+    },
+    "mean_reversion_rsi": {
+     "n": 974,
+     "acc": 0.5144,
+     "lb95": 0.483,
+     "lb_family": 0.4568
+    },
+    "ema_trend": {
+     "n": 974,
+     "acc": 0.5072,
+     "lb95": 0.4758,
+     "lb_family": 0.4497
+    },
+    "specialist_ensemble": {
+     "n": 974,
+     "acc": 0.4671,
+     "lb95": 0.436,
+     "lb_family": 0.4103
+    },
+    "agent_technical": {
+     "n": 882,
+     "acc": 0.4603,
+     "lb95": 0.4277,
+     "lb_family": 0.4008
+    },
+    "agent_trend": {
+     "n": 953,
+     "acc": 0.5079,
+     "lb95": 0.4762,
+     "lb_family": 0.4498
+    },
+    "agent_candles": {
+     "n": 931,
+     "acc": 0.4855,
+     "lb95": 0.4535,
+     "lb_family": 0.4271
+    },
+    "agent_price_action": {
+     "n": 696,
+     "acc": 0.4641,
+     "lb95": 0.4273,
+     "lb_family": 0.3972
+    },
+    "agent_momentum": {
+     "n": 906,
+     "acc": 0.4702,
+     "lb95": 0.4379,
+     "lb_family": 0.4113
+    },
+    "agent_liquidity": {
+     "n": 51,
+     "acc": 0.5294,
+     "lb95": 0.3952,
+     "lb_family": 0.2984
+    },
+    "always_majority_of_dev": {
+     "n": 974,
+     "acc": 0.5031,
+     "lb95": 0.4717,
+     "lb_family": 0.4457
+    }
+   },
+   "lockbox_trades": 974
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 60,
+   "spec": "base",
+   "dev_validated": false,
+   "dev_trades": 81,
+   "dev_acc": 0.4568,
+   "dev_lb_family": 0.2775,
+   "dev_reasons": [
+    "only 81 independent out-of-sample trades (< 200)",
+    "lower bound 0.2775 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     81,
+     0.457
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 487,
+    "acc": 0.538,
+    "lb95": 0.4936,
+    "lb_family": 0.4566
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 60,
+   "spec": "shallow",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 487,
+    "acc": 0.5626,
+    "lb95": 0.5182,
+    "lb_family": 0.481
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 60,
+   "spec": "regularised",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 487,
+    "acc": 0.5318,
+    "lb95": 0.4874,
+    "lb_family": 0.4506
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 60,
+   "spec": "no_structure",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 487,
+    "acc": 0.5483,
+    "lb95": 0.5038,
+    "lb_family": 0.4668
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 60,
+   "spec": "trend_momentum",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 487,
+    "acc": 0.501,
+    "lb95": 0.4568,
+    "lb_family": 0.4204
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 60,
+   "spec": "structure_mtf",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 487,
+    "acc": 0.5257,
+    "lb95": 0.4813,
+    "lb_family": 0.4445
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 60,
+   "spec": "interactions",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 487,
+    "acc": 0.5565,
+    "lb95": 0.5121,
+    "lb_family": 0.4749
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 60,
+   "spec": "lightgbm",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 487,
+    "acc": 0.5257,
+    "lb95": 0.4813,
+    "lb_family": 0.4445
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 60,
+   "spec": "catboost",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 487,
+    "acc": 0.5462,
+    "lb95": 0.5018,
+    "lb_family": 0.4647
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 60,
+   "spec": "logistic",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 487,
+    "acc": 0.5359,
+    "lb95": 0.4915,
+    "lb_family": 0.4546
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 60,
+   "spec": "RULE_BASELINES",
+   "lockbox": {
+    "momentum_ret3": {
+     "n": 487,
+     "acc": 0.4784,
+     "lb95": 0.4344,
+     "lb_family": 0.3985
+    },
+    "mean_reversion_rsi": {
+     "n": 487,
+     "acc": 0.5092,
+     "lb95": 0.4649,
+     "lb_family": 0.4284
+    },
+    "ema_trend": {
+     "n": 487,
+     "acc": 0.4928,
+     "lb95": 0.4486,
+     "lb_family": 0.4124
+    },
+    "specialist_ensemble": {
+     "n": 487,
+     "acc": 0.462,
+     "lb95": 0.4182,
+     "lb_family": 0.3826
+    },
+    "agent_technical": {
+     "n": 434,
+     "acc": 0.5023,
+     "lb95": 0.4554,
+     "lb_family": 0.417
+    },
+    "agent_trend": {
+     "n": 475,
+     "acc": 0.5011,
+     "lb95": 0.4563,
+     "lb_family": 0.4194
+    },
+    "agent_candles": {
+     "n": 464,
+     "acc": 0.4677,
+     "lb95": 0.4227,
+     "lb_family": 0.3862
+    },
+    "agent_price_action": {
+     "n": 342,
+     "acc": 0.4678,
+     "lb95": 0.4156,
+     "lb_family": 0.3735
+    },
+    "agent_momentum": {
+     "n": 448,
+     "acc": 0.4576,
+     "lb95": 0.412,
+     "lb_family": 0.3751
+    },
+    "agent_liquidity": {
+     "n": 33,
+     "acc": 0.5152,
+     "lb95": 0.3522,
+     "lb_family": 0.2452
+    },
+    "always_majority_of_dev": {
+     "n": 487,
+     "acc": 0.4928,
+     "lb95": 0.4486,
+     "lb_family": 0.4124
+    }
+   },
+   "lockbox_trades": 487
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 120,
+   "spec": "base",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5205,
+    "lb95": 0.458,
+    "lb_family": 0.4071
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 120,
+   "spec": "shallow",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5,
+    "lb95": 0.4378,
+    "lb_family": 0.3876
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 120,
+   "spec": "regularised",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5082,
+    "lb95": 0.4458,
+    "lb_family": 0.3954
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 120,
+   "spec": "no_structure",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.4959,
+    "lb95": 0.4337,
+    "lb_family": 0.3837
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 120,
+   "spec": "trend_momentum",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.4959,
+    "lb95": 0.4337,
+    "lb_family": 0.3837
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 120,
+   "spec": "structure_mtf",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5082,
+    "lb95": 0.4458,
+    "lb_family": 0.3954
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 120,
+   "spec": "interactions",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5328,
+    "lb95": 0.4702,
+    "lb_family": 0.4189
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 120,
+   "spec": "lightgbm",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5533,
+    "lb95": 0.4906,
+    "lb_family": 0.4388
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 120,
+   "spec": "catboost",
+   "dev_validated": false,
+   "dev_trades": 0,
+   "dev_acc": null,
+   "dev_lb_family": null,
+   "dev_reasons": [
+    "only 0 independent out-of-sample trades (< 200)",
+    "lower bound None \u2264 required 0.5656",
+    "walk-forward inconsistent (0/0 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5246,
+    "lb95": 0.462,
+    "lb_family": 0.411
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 120,
+   "spec": "logistic",
+   "dev_validated": false,
+   "dev_trades": 95,
+   "dev_acc": 0.4737,
+   "dev_lb_family": 0.3036,
+   "dev_reasons": [
+    "only 95 independent out-of-sample trades (< 200)",
+    "lower bound 0.3036 \u2264 required 0.5656",
+    "walk-forward inconsistent (0/1 trading folds at/above required)",
+    "does not beat the no-model baseline"
+   ],
+   "folds": [
+    [
+     0,
+     null
+    ],
+    [
+     95,
+     0.474
+    ],
+    [
+     0,
+     null
+    ],
+    [
+     0,
+     null
+    ]
+   ],
+   "lockbox_threshold": null,
+   "lockbox_all": {
+    "n": 244,
+    "acc": 0.5533,
+    "lb95": 0.4906,
+    "lb_family": 0.4388
+   }
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 120,
+   "spec": "RULE_BASELINES",
+   "lockbox": {
+    "momentum_ret3": {
+     "n": 244,
+     "acc": 0.459,
+     "lb95": 0.3976,
+     "lb_family": 0.349
+    },
+    "mean_reversion_rsi": {
+     "n": 244,
+     "acc": 0.5205,
+     "lb95": 0.458,
+     "lb_family": 0.4071
+    },
+    "ema_trend": {
+     "n": 244,
+     "acc": 0.5,
+     "lb95": 0.4378,
+     "lb_family": 0.3876
+    },
+    "specialist_ensemble": {
+     "n": 244,
+     "acc": 0.4754,
+     "lb95": 0.4136,
+     "lb_family": 0.3644
+    },
+    "agent_technical": {
+     "n": 210,
+     "acc": 0.4714,
+     "lb95": 0.405,
+     "lb_family": 0.3526
+    },
+    "agent_trend": {
+     "n": 237,
+     "acc": 0.5021,
+     "lb95": 0.4389,
+     "lb_family": 0.388
+    },
+    "agent_candles": {
+     "n": 234,
+     "acc": 0.4701,
+     "lb95": 0.4071,
+     "lb_family": 0.3572
+    },
+    "agent_price_action": {
+     "n": 166,
+     "acc": 0.4699,
+     "lb95": 0.3955,
+     "lb_family": 0.3376
+    },
+    "agent_momentum": {
+     "n": 225,
+     "acc": 0.4756,
+     "lb95": 0.4113,
+     "lb_family": 0.3602
+    },
+    "agent_liquidity": {
+     "n": 18,
+     "acc": 0.5,
+     "lb95": 0.2903,
+     "lb_family": 0.1763
+    },
+    "always_majority_of_dev": {
+     "n": 244,
+     "acc": 0.4877,
+     "lb95": 0.4257,
+     "lb_family": 0.3759
+    }
+   },
+   "lockbox_trades": 244
+  },
+  {
+   "market": "XRPUSD",
+   "duration": 300,
+   "status": "insufficient data",
+   "dev": 1419,
+   "lockbox": 482
+  }
+ ],
+ "elapsed_s": 102
+}

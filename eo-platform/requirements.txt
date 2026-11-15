@@ -1,0 +1,16 @@
+# Original framework (vendored, Apache-2.0): pip install -e vendor/TradingAgents
+fastapi>=0.115
+uvicorn[standard]>=0.30
+itsdangerous>=2.2
+httpx>=0.27
+websockets>=13
+numpy>=2.0
+pandas>=2.2
+ta>=0.11
+xgboost>=2.1
+scikit-learn>=1.5
+langgraph>=1.0
+python-telegram-bot>=21,<23
+lightgbm>=4.5
+catboost>=1.2
+pytest>=8

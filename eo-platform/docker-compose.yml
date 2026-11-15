@@ -1,0 +1,27 @@
+# Continuous deployment: app + local Ollama. Both restart automatically.
+#   docker compose up -d
+#   docker compose exec ollama ollama pull qwen3.5:9b
+#   docker compose exec app python -m eoplatform create-admin
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes: [ollama:/root/.ollama]
+    # Uncomment for an NVIDIA GPU:
+    # deploy: {resources: {reservations: {devices: [{driver: nvidia, count: all, capabilities: [gpu]}]}}}
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on: [ollama]
+    env_file: .env
+    environment:
+      EO_LLM_BASE_URL: http://ollama:11434/v1
+      EO_HOME: /data
+      EO_HOST: 0.0.0.0
+    ports: ["127.0.0.1:8000:8000"]   # local only; put a TLS reverse proxy in front for remote access
+    volumes: [eodata:/data]
+    stop_grace_period: 30s
+    mem_limit: 3g
+volumes:
+  ollama:
+  eodata:

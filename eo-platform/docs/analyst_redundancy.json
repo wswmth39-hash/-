@@ -1,0 +1,24 @@
+{
+  "period_s": 10,
+  "samples": 17156,
+  "per_market": {
+    "BTCUSD": 4289,
+    "ETHUSD": 4289,
+    "LTCUSD": 4289,
+    "XRPUSD": 4289
+  },
+  "keys": [
+    "trend",
+    "momentum",
+    "technical",
+    "price_action"
+  ],
+  "corr": {
+    "trend|momentum": 0.4,
+    "trend|technical": 0.27,
+    "trend|price_action": 0.34,
+    "momentum|technical": 0.56,
+    "momentum|price_action": 0.72,
+    "technical|price_action": 0.43
+  }
+}
