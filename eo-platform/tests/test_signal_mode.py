@@ -120,8 +120,8 @@ def test_screenshot_markets_shown_but_never_fabricate_a_signal(settings):
         fake.press(OWNER, [d for t, d in btns if t == "Apple 🍎"][0])
         a = fake.wait_for(lambda m: "Apple" in m["text"])
         assert "لا تتوفر بيانات" in a["text"] and "بيع" not in a["text"] and "شراء" not in a["text"]
-        # pressing a screenshot market → honest "no data", never a buy/sell
-        fake.press(OWNER, "sigx:1")                                        # Smarty
+        # pressing a screenshot market → honest "no data", never a buy/sell (find Smarty by label)
+        fake.press(OWNER, [d for t, d in btns if t.startswith("Smarty")][0])
         r = fake.wait_for(lambda m: "Smarty" in m["text"])
         assert "لا تتوفر بيانات" in r["text"] and "بيع" not in r["text"] and "شراء" not in r["text"]
         # the real crypto markets still give a direction
