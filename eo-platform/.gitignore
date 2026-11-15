@@ -9,3 +9,4 @@ __pycache__/
 models/
 logs/
 catboost_info/
+eo_discovery.json
