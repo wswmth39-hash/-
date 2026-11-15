@@ -237,7 +237,8 @@ def test_group_and_channel_messages_are_ignored_without_any_reply(running):
         fake.command(STRANGER, "/start", chat=chat)         # and a stranger's ID is not leaked there
         fake.text(OWNER, "btc", chat=chat)
     fake.press(OWNER, "an:BTCUSD", chat=GROUP)
-    time.sleep(1.5)
+    assert _wait(lambda: bot.ignored_non_private >= 7, 20)   # condition-based: no fixed sleep under load
+    time.sleep(0.5)
     assert all(m["chat_id"] > 0 for m in fake.sent)          # nothing ever sent to a group/channel id
     assert not [m for m in fake.sent if m["method"] == "sendMessage"]
     assert core.db.one("SELECT count(*) n FROM telegram_requests")["n"] == 0     # no analysis ran

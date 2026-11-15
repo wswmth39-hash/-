@@ -19,7 +19,6 @@ import time
 from collections import defaultdict, deque
 
 from ..config import DURATIONS
-from ..engine.fast import calibration_ok
 from ..markets import allowed_sources, get_market, list_markets
 
 log = logging.getLogger("eo.telegram")
@@ -161,46 +160,30 @@ class TelegramService:
         return [self.core.analyze_fast(market_id, d, trigger="telegram") for d in DURATIONS]
 
     def choose(self, m: dict, sigs: list[dict]) -> dict:
-        payout = self.core.s.payout_for(m["id"])
-        qualified = []
-        for s in sigs:
-            lb = (s.get("confidence_detail") or {}).get("wilson_lb")
-            if s["decision"] in ("BUY", "SELL") and s.get("validated") and lb is not None:
-                edge = lb * (1 + payout) - 1
-                if edge > 0:
-                    qualified.append((edge, s))
-        qualified.sort(key=lambda x: -x[0])
-        if qualified:
-            edge, best = qualified[0]
-            decision, horizon = best["decision"], best["duration"]
-        else:
-            # WAIT: describe the market with the shortest-horizon analysis (all share price/source)
-            best, edge, decision, horizon = sigs[0], None, "WAIT", None
-        ok, cal_note = calibration_ok(self._meta(best))
+        """Delegates to the shared final decision engine (engine/decision.py) and adds the
+        Telegram-specific fields (startup loading state) plus legacy keys used by older views."""
+        from ..engine.decision import decide
+        d = decide(m, sigs, self.core.s.payout_for(m["id"]), self._meta)
+        best = next((s for s in sigs if s["duration"] == d["horizon"]), sigs[0])
         conf = None
-        if decision != "WAIT" and best.get("confidence_detail"):
-            cd = best["confidence_detail"]
-            conf = {"oos_accuracy": cd.get("oos_accuracy"), "oos_trades": cd.get("oos_samples"),
-                    "wilson_lb": cd.get("wilson_lb"), "probability": best.get("probability_display") if ok else None}
-        return {
-            "market": m["id"], "market_name": m["name"], "market_name_ar": m.get("name_ar"), "kind": m["kind"],
-            "decision": decision, "horizon": horizon, "edge_lb": edge,
-            "price": best.get("entry_price"), "data_source": best.get("data_source"),
-            "data_state": best.get("data_state"), "data_age": best.get("data_age"),
-            "regime_ar": best.get("regime_ar"), "trend": best.get("trend"),
-            "evidence_for": best.get("evidence_for") or [], "evidence_against": best.get("evidence_against") or [],
+        if d["confidence"]:
+            conf = {"oos_accuracy": d["confidence"]["validated_accuracy"],
+                    "oos_trades": d["confidence"]["independent_oos_trades"],
+                    "wilson_lb": d["confidence"]["lower_bound_95"],
+                    "probability": d["confidence"]["calibrated_probability"]}
+        d.update({
+            "confidence_v4": d["confidence"], "confidence": conf,
             "reasons": best.get("reasons") or [], "abstain": best.get("abstain_reason"),
-            "warnings": best.get("warnings") or [], "confidence": conf,
-            "calibration_note": best.get("probability_note") or cal_note,
+            "calibration_note": best.get("probability_note") or d["confidence_note"],
             "evaluated": [{"duration": s["duration"], "decision": s["decision"], "candidate": s.get("candidate"),
                            "validated": bool(s.get("validated"))} for s in sigs],
             "supported_horizons": [s["duration"] for s in sigs
                                    if (s.get("model_status") or {}).get("state") == "validated"],
-            "timestamp": best.get("timestamp") or time.time(), "signal_id": best.get("id"),
             # loading never changes the decision (still WAIT); it only explains why data is missing
-            "data_loading": decision == "WAIT" and best.get("data_state") != "LIVE" and self.data_loading(m),
+            "data_loading": d["decision"] == "WAIT" and best.get("data_state") != "LIVE" and self.data_loading(m),
             "uptime_s": round(self.uptime()),
-        }
+        })
+        return d
 
     def _meta(self, sig: dict) -> dict | None:
         mid = sig.get("model_id")

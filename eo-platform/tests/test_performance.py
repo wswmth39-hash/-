@@ -92,9 +92,13 @@ def test_missing_candles_and_frozen_feed_wait(env):
     assert sig["decision"] == "WAIT" and sig["signal_class"] in ("UNRELIABLE_DATA", "BLOCKED", "WEAK")
 
 
-def test_event_driven_auto_pipeline(settings):
-    """Bar-close events → per-market analysis → cross-market ranking, through the real asyncio path."""
+def test_event_driven_auto_pipeline(settings, monkeypatch):
+    """Bar-close events → per-market analysis → cross-market ranking, through the real asyncio path.
+    (The 150 ms ranking deadline is widened here: this test checks the pipeline, not CPU speed under
+    a loaded test runner; the deadline itself is measured live in /api/metrics.)"""
+    from eoplatform.service import auto as auto_mod
     from eoplatform.service.core import Core
+    monkeypatch.setattr(auto_mod, "COLLECT_S", 3.0)
     core = Core(settings)
     end = int(time.time()) // 60 * 60 + 60           # the next minute boundary
     for i, m in enumerate(MARKETS):                   # live feeds up to just before the boundary
@@ -106,7 +110,10 @@ def test_event_driven_auto_pipeline(settings):
         await asyncio.sleep(0.05)
         for m in MARKETS:                               # last 1s bar of the minute closes for each market
             core.hub.ingest_bars(m, "expertoption", [(end - 1, 1.1, 1.1, 1.1, 1.1, 1)], now=time.time())
-        await asyncio.sleep(0.6)
+        for _ in range(100):                            # condition-based wait (max 5 s)
+            if core.metrics.summary()["series"].get("auto_decision_ms", {}).get("n"):
+                break
+            await asyncio.sleep(0.05)
         task.cancel()
     asyncio.run(go())
     s = core.metrics.summary()["series"]

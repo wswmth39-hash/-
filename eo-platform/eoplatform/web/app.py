@@ -254,6 +254,19 @@ def create_app(settings: Settings, start_services: bool = True) -> FastAPI:
         from ..learning.models_view import summary
         return summary(core.db)
 
+    @app.get("/api/scanner")
+    async def scanner(u=Depends(user)):
+        """AUTO SCANNER statistics + the last board (no execution happens here)."""
+        return {"stats": core.auto.stats_view(), "board": core.auto.board}
+
+    @app.post("/api/scanner/scan")
+    async def scanner_scan(u=Depends(user)):
+        """On-demand scan of available markets (analysis only)."""
+        r = await asyncio.get_running_loop().run_in_executor(core.signal_pool, core.auto.scan_report)
+        for d in r["decisions"]:
+            d.pop("panel", None)
+        return r
+
     @app.get("/api/strategies")
     async def strategies(u=Depends(user)):
         return core.db.all("SELECT * FROM strategy_results WHERE id IN (SELECT max(id) FROM strategy_results "

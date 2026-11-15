@@ -148,7 +148,7 @@ def test_auto_scanner_abstains_without_validated_model(settings):
     core.execution.set_config({"mode": "paper", "durations": [30, 60, 120, 300]})
     res = core.auto.scan_once(now=end + 0.4)      # right after every analysis candle closed
     assert res["evaluated"] == 4                  # all four durations compared
-    assert res["chosen"] is None and "امتناع" in res["why"]
+    assert res["chosen"] is None and "لا توجد فرصة مؤهلة حاليًا" in res["why"]   # V4 wording (phase 7)
     assert core.db.one("SELECT count(*) n FROM orders")["n"] == 0
 
 

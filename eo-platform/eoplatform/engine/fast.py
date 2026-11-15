@@ -45,13 +45,17 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
     def done():
         classify(sig, ctx, settings)
         explain(sig, ctx, settings, perf)
-        sig["panel"] = AN.panel(ctx.get("row"), ctx.get("c"), ctx.get("ev"), ctx.get("regime"), sig["data_state"],
-                                ctx.get("health"), ctx.get("model"))
+        if ctx.get("model") is None and "panel_base" in ctx:
+            sig["panel"] = ctx["panel_base"]          # computed once already (no model involved)
+        else:
+            sig["panel"] = AN.panel(ctx.get("row"), ctx.get("c"), ctx.get("ev"), ctx.get("regime"),
+                                    sig["data_state"], ctx.get("health"), ctx.get("model"))
         sig["latency_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         return sig
 
     src, state = hub.best_source(market, now)
     if src is None:
+        ctx["stop"] = "no_data"
         sig["reasons"].append("لا توجد بيانات حقيقية لهذا السوق" +
                               (" — أسواق OTC تتطلب بيانات ExpertOption عبر الجسر" if market["kind"] == "otc" else ""))
         return done()
@@ -74,6 +78,7 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
         c = c[1:]   # drop the partially covered first candle: the window start moves every second,
                     # which made indicator values (and the feature-cache key) change on every call
     if len(c) < F.MIN_CANDLES or not F.contiguous(c, P)[-1]:
+        ctx["stop"] = "insufficient_continuous_data"
         sig["reasons"].append(f"بيانات متصلة غير كافية: يلزم {F.MIN_CANDLES} شمعة متتالية من {P} ثانية")
         if state != "LIVE":
             sig["reasons"].append(f"حالة البيانات: {STATE_AR[state]}")
@@ -119,7 +124,8 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
         sig["candidate"] = "BUY" if p_up > 0.5 else "SELL"
     else:
         # no model: candidate direction from the redundancy-weighted analyst consensus (NOT a decision)
-        cons = AN.panel(row, c, ev, reg, state, h, None)["consensus"]
+        ctx["panel_base"] = AN.panel(row, c, ev, reg, state, h, None)
+        cons = ctx["panel_base"]["consensus"]
         sig["consensus_score"] = cons
         sig["candidate"] = "BUY" if cons > 0 else "SELL" if cons < 0 else None
 
@@ -130,33 +136,40 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
         sig["reasons"].append(f"{e['name_ar']} ({tag}): " + "، ".join(e["facts"][:3]))
 
     if state != "LIVE":
+        ctx["stop"] = "data_not_live"
         sig["reasons"].insert(0, f"البيانات {STATE_AR[state]} (آخر تحديث قبل {sig['data_age']} ث) — لا إشارة على بيانات غير حية")
         return done()
     if h.get("recent_spike"):
+        ctx["stop"] = "data_anomaly"
         sig["reasons"].insert(0, "قفزة سعرية غير طبيعية خلال آخر دقيقتين (أكبر من 12 انحرافًا متينًا في ثانية واحدة): حركة عنيفة أو خطأ بيانات — انتظار")
         ctx["unreliable"] = True
         return done()
     if ev["liquidity"].get("abnormal"):
+        ctx["stop"] = "abnormal_volatility"
         sig["reasons"].insert(0, "ظروف تقلب/سيولة غير طبيعية — انتظار")
         ctx["blocked"] = "volatility"
         return done()
     if reg == "quiet":
+        ctx["stop"] = "quiet_market"
         sig["reasons"].insert(0, "السوق هادئ جدًا (تقلب أقل من 40% من المعتاد) — احتمال التعادل مرتفع، انتظار")
         ctx["blocked"] = "quiet"
         return done()
     if q.get(f"frozen_{src}"):
+        ctx["stop"] = "frozen_data"
         sig["reasons"].insert(0, "السعر مجمّد (لم يتغير منذ دقيقتين) — بيانات مشكوك فيها، انتظار")
         ctx["unreliable"] = True
         return done()
     if q.get("mismatch"):
         sig["warnings"].append(f"عدم تطابق بين سعر ExpertOption والمرجع ({q.get('mismatch_median_pct')}%)")
     if ev.get("news", {}).get("high_impact_soon"):
+        ctx["stop"] = "news_risk"
         sig["reasons"].insert(0, "خبر اقتصادي عالي التأثير قريب من وقت الصفقة — انتظار")
         ctx["blocked"] = "news"
         return done()
 
     if champ is None:
         msg = "لا يوجد نموذج مُتحقق منه لهذا السوق والمدة بعد؛ الاتجاه المرشح غير مُثبت إحصائيًا"
+        ctx["stop"] = "no_validated_model"     # also when unvalidated output is allowed: the gate DID fail
         if settings.require_validated_model:
             sig["reasons"].insert(0, msg)
             return done()
@@ -177,28 +190,67 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
         ctx["model"] = {"id": mrow["id"], "algo": meta.get("algo", "xgboost"), "p_up": p_up, "threshold": thr,
                         "oos_acc": conf["acc"], "oos_n": conf["n"]}
     if thr is None:
+        ctx["stop"] = "model_not_validated"
         sig["reasons"].insert(0, "النموذج الحالي لم يحقق دقة أعلى من نقطة التعادل خارج العينة — انتظار")
         return done()
     # Dynamic threshold: regimes where this model's held-out accuracy at its threshold fell below
     # break-even (measured in training, enough samples) are blocked for this model.
     rb = (meta.get("regime_stats") or {}).get(reg)
     if rb and rb.get("blocked"):
+        ctx["stop"] = "regime_blocked"
         sig["reasons"].insert(0, f"النموذج غير مربح تاريخيًا في حالة «{REGIME_AR[reg]}» "
                                  f"(دقة {rb['acc']*100:.1f}% على {rb['n']} صفقة خارج العينة) — انتظار")
         ctx["blocked"] = "regime"
         return done()
     ood = out_of_distribution(meta.get("feature_ref"), row)
     if ood:
+        ctx["stop"] = "out_of_distribution"
         sig["reasons"].insert(0, f"حالة غير مألوفة للنموذج: {len(ood)} مؤشرات خارج نطاق بيانات التدريب "
                                  f"({'، '.join(ood[:3])}) — لا يُعتمد توقعه هنا، انتظار")
         ctx["blocked"] = "ood"
         return done()
     if abs(p_up - 0.5) < thr:
+        ctx["stop"] = "below_validated_threshold"
         sig["reasons"].insert(0, f"قوة التوقع {abs(p_up-0.5):.3f} أقل من العتبة المُتحقق منها {thr:.3f}")
         return done()
+    ctx["stop"] = None                       # every gate passed
     sig["decision"] = sig["candidate"]
     sig["validated"] = True
     return done()
+
+
+# Gates in the exact order analyze() applies them. A signal stops at the first failing gate:
+# earlier gates passed, later gates were not evaluated (None) — never reported as passed.
+GATES = [
+    ("data_available", "no_data", "توفر بيانات حقيقية من مصدر مسموح"),
+    ("enough_candles", "insufficient_continuous_data", "شموع متصلة كافية"),
+    ("data_live", "data_not_live", "البيانات حية (عمرها ≤ الحد)"),
+    ("data_integrity", "data_anomaly", "لا قفزات سعرية غير طبيعية"),
+    ("volatility_ok", "abnormal_volatility", "تقلب وسيولة طبيعيان"),
+    ("not_quiet", "quiet_market", "السوق ليس هادئًا جدًا"),
+    ("not_frozen", "frozen_data", "السعر غير مجمّد"),
+    ("no_news_risk", "news_risk", "لا خبر عالي التأثير قريب"),
+    ("validated_model", "no_validated_model", "يوجد نموذج اجتاز التحقق الإحصائي"),
+    ("model_threshold", "model_not_validated", "للنموذج عتبة متحقق منها"),
+    ("regime_allowed", "regime_blocked", "النموذج غير محجوب في نظام السوق الحالي"),
+    ("in_distribution", "out_of_distribution", "الحالة ضمن نطاق بيانات التدريب"),
+    ("signal_strength", "below_validated_threshold", "قوة التوقع ≥ العتبة المتحقق منها"),
+]
+
+
+def gate_checklist(stop: str | None, decision: str) -> list[dict]:
+    out, reached = [], True
+    for key, code, name in GATES:
+        if not reached:
+            out.append({"gate": key, "name_ar": name, "ok": None})
+            continue
+        failed = stop == code
+        out.append({"gate": key, "name_ar": name, "ok": not failed})
+        if failed:
+            reached = False
+    if stop is not None and stop not in {c for _, c, _ in GATES}:   # unknown stop: never claim a pass
+        out = [{**g, "ok": None} for g in out]
+    return out
 
 
 OOD_Z, OOD_MIN = 10.0, 3
@@ -281,8 +333,9 @@ def explain(sig: dict, ctx: dict, settings, perf) -> None:
         "live": perf.get(sig["market"], sig["duration"], sig.get("regime")) if perf is not None else None}
     if sig["decision"] == "WAIT":
         first = (sig.get("reasons") or [""])[0]
-        code = next((c for k, c in ABSTAIN_CODES if k in first), "other")
+        code = ctx.get("stop") or next((c for k, c in ABSTAIN_CODES if k in first), "other")
         sig["abstain_reason"] = {"code": code, "text": first}
+    sig["gates"] = gate_checklist(ctx.get("stop"), sig["decision"])
 
 
 CLASS_AR = {"STRONG_BUY": "شراء قوي", "STRONG_SELL": "بيع قوي", "BUY": "شراء", "SELL": "بيع",
