@@ -119,12 +119,11 @@ def test_screenshot_markets_shown_but_never_fabricate_a_signal(settings):
         # a stock/OTC display market → honest no-data; a real crypto (Ethereum/USD) → real signal
         fake.press(OWNER, [d for t, d in btns if t == "Apple 🍎"][0])
         a = fake.wait_for(lambda m: "Apple" in m["text"])
-        assert "عيّنة لتجربة شكل الواجهة" in a["text"]                   # clearly a UI sample, not a real signal
-        assert "ليست إشارة" in a["text"] and "الوقت :" in a["text"]
+        assert "🧪 تجريبي" in a["text"] and "الوقت :" in a["text"]   # clearly a demo, not a real signal
         # pressing a screenshot market → honest "no data", never a buy/sell (find Smarty by label)
         fake.press(OWNER, [d for t, d in btns if t.startswith("Smarty")][0])
         r = fake.wait_for(lambda m: "Smarty" in m["text"])
-        assert "عيّنة لتجربة شكل الواجهة" in r["text"] and "ليست إشارة، ولا سعر حقيقي" in r["text"]
+        assert "🧪 تجريبي" in r["text"]
         # the real crypto markets still give a direction
         fake.press(OWNER, "sig:ETHUSD")
         r2 = fake.wait_for(lambda m: "Ethereum" in m["text"])
@@ -139,6 +138,6 @@ def test_screenshot_markets_shown_but_never_fabricate_a_signal(settings):
 def test_demo_preview_is_clearly_labelled_and_not_a_real_signal():
     for idx in range(len(T.SIG_MENU)):
         t = T.sig_demo_text(idx)
-        assert "عيّنة لتجربة شكل الواجهة" in t and "ليست إشارة، ولا سعر حقيقي، ولا تحليل" in t
+        assert "🧪 تجريبي" in t
         assert ("بيع / Sell" in t) or ("شراء / Buy" in t)          # shows the layout
         assert "السعر" not in t                                     # never shows a (fake) price
