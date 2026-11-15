@@ -203,7 +203,7 @@ class ExecutionEngine:
         if lb is None:
             r.append("لا يوجد حد أدنى مُتحقق للدقة")
         else:
-            edge = lb * (1 + self.s.payout) - 1
+            edge = lb * (1 + self.s.payout_for(sig.get("market"))) - 1
             if edge <= cfg["min_edge"]:
                 r.append(f"العائد المتوقع المتحفظ {edge:+.3f} لا يتجاوز الحد {cfg['min_edge']}")
         return r

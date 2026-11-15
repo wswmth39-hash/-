@@ -35,7 +35,7 @@ def register(db, registry, settings, market: dict, duration: int, spec: str, rat
     bars = np.asarray(db.bars(market["id"], src, 0), dtype=float)
     ds = build_dataset(bars, duration, delay_s=settings.exec_delay_s)
     sp = trainer.SPECS[spec]
-    required = settings.breakeven + settings.cost_buffer
+    required = settings.breakeven_for(market["id"]) + settings.cost_buffer
     purge = duration // ANALYSIS_PERIOD[duration] + F.MIN_CANDLES
     wf = V.walk_forward(ds.X, ds.y, ds.ts, duration, purge, required, algo=sp.get("algo", "xgboost"),
                         params=sp["params"], feature_idx=trainer.feature_idx(sp["features"]),
@@ -48,7 +48,8 @@ def register(db, registry, settings, market: dict, duration: int, spec: str, rat
             "feature_idx": trainer.feature_idx(sp["features"]), "interactions": trainer.interaction_idx(sp.get("interactions")),
             "features": F.FEATURES, "threshold": thr, "validated": False, "forward_test": True,
             "exec_delay_s": settings.exec_delay_s, "required_accuracy": required, "walk_forward": wf.folds,
-            "analysis_period": ANALYSIS_PERIOD[duration], "breakeven": settings.breakeven}
+            "analysis_period": ANALYSIS_PERIOD[duration], "breakeven": settings.breakeven_for(market["id"]),
+            "payout": settings.payout_for(market["id"])}
     mid = registry.register(market["id"], duration, wf.model, meta, "candidate", "forward test (pre-registered)")
     running = db.one("SELECT count(*) n FROM forward_tests WHERE created_at > ?",
                      (time.time() - settings.ledger_days * 86400,))["n"]

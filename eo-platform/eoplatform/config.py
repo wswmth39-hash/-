@@ -75,6 +75,7 @@ class Settings:
     stale_max_age: float = 60.0
     # --- decision policy
     payout: float = 0.80          # payout ratio used for the break-even accuracy
+    payout_map: dict = field(default_factory=dict)   # EO_PAYOUT_MAP="BTCUSD=0.82,ETHUSD=0.78" (per market)
     require_validated_model: bool = True
     exec_delay_s: int = 1           # seconds between candle close and entry, used in training labels
     cost_buffer: float = 0.01       # extra accuracy required above break-even (quote gap, slippage)
@@ -101,6 +102,28 @@ class Settings:
     def breakeven(self) -> float:
         """Accuracy needed to break even on a binary option with this payout."""
         return 1.0 / (1.0 + self.payout)
+
+    def payout_for(self, market: str | None) -> float:
+        """Payout for this market: EO_PAYOUT_MAP entry if the owner set one (the payout they actually
+        see on ExpertOption), else EO_PAYOUT. Never guessed or fetched automatically."""
+        return float(self.payout_map.get(market, self.payout)) if market else self.payout
+
+    def breakeven_for(self, market: str | None) -> float:
+        return 1.0 / (1.0 + self.payout_for(market))
+
+
+def _payout_map(raw: str) -> dict:
+    out = {}
+    for part in raw.replace(" ", "").split(","):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            try:
+                f = float(v)
+            except ValueError:
+                continue
+            if 0.0 < f < 2.0:                 # a payout ratio, e.g. 0.82; anything else is ignored
+                out[k.upper()] = f
+    return out
 
 
 def load_settings(env_file: str | None = None) -> Settings:
@@ -137,6 +160,7 @@ def load_settings(env_file: str | None = None) -> Settings:
         delayed_max_age=_f("EO_DELAYED_MAX_AGE", 10.0),
         stale_max_age=_f("EO_STALE_MAX_AGE", 60.0),
         payout=_f("EO_PAYOUT", 0.80),
+        payout_map=_payout_map(os.environ.get("EO_PAYOUT_MAP", "")),
         require_validated_model=_b("EO_REQUIRE_VALIDATED_MODEL", True),
         exec_delay_s=_i("EO_EXEC_DELAY_S", 1),
         cost_buffer=_f("EO_COST_BUFFER", 0.01),

@@ -17,18 +17,25 @@ def _summ(rows: list[dict]) -> dict:
             "wilson_lb": wilson_lb(w, n) if n else None, "p_value_vs_50": binom_p_greater(w, n) if n else None}
 
 
-def performance(db: DB, breakeven: float, since: float = 0) -> dict:
+def performance(db: DB, breakeven: float, since: float = 0, payout_for=None) -> dict:
+    """``payout_for(market)`` (optional) gives each market its own payout (EO_PAYOUT_MAP)."""
     rows = db.all("SELECT id,market,kind,duration,source,decision,candidate,status,trend,data_source,confidence,"
                   "created_at,payload FROM signals WHERE status IN ('win','loss','draw') AND created_at>=?", (since,))
     acted = [r for r in rows if r["decision"] != "WAIT"]
     payout = 1 / breakeven - 1
 
-    def ev(summary: dict) -> dict:
+    def ev(summary: dict, p: float | None = None) -> dict:
+        p = payout if p is None else p
         a = summary.get("accuracy")
         lb = summary.get("wilson_lb")
-        # expected return per 1 unit staked after payout: win → +payout, loss → −1
-        summary["ev_per_unit"] = round(a * payout - (1 - a), 4) if a is not None else None
-        summary["ev_per_unit_lb"] = round(lb * payout - (1 - lb), 4) if lb is not None else None
+        # expected return per 1 unit staked after payout: win → +payout, loss → −1 (ties excluded)
+        summary["ev_per_unit"] = round(a * p - (1 - a), 4) if a is not None else None
+        summary["ev_per_unit_lb"] = round(lb * p - (1 - lb), 4) if lb is not None else None
+        # per trade INCLUDING ties (tie = stake refunded, 0): what a trader actually experiences
+        t = summary.get("n", 0) + summary.get("draws", 0)
+        summary["ev_per_trade_incl_draws"] = (round((summary["wins"] * p - summary["losses"]) / t, 4) if t else None)
+        summary["draw_rate"] = round(summary.get("draws", 0) / t, 4) if t else None
+        summary["payout"] = round(p, 4)
         return summary
 
     out = {"breakeven": breakeven, "payout": payout, "overall_signals": ev(_summ(acted)), "overall_candidates": _summ(rows),
@@ -40,8 +47,9 @@ def performance(db: DB, breakeven: float, since: float = 0) -> dict:
         groups[(r["market"], r["duration"], r["source"])].append(r)
     for (m, d, src), rs in sorted(groups.items()):
         a = [r for r in rs if r["decision"] != "WAIT"]
+        pm = payout_for(m) if payout_for else payout
         out["by_market_duration"].append({"market": m, "duration": d, "engine": src,
-                                          "signals": ev(_summ(a)), "candidates": ev(_summ(rs))})
+                                          "signals": ev(_summ(a), pm), "candidates": ev(_summ(rs), pm)})
     sg = defaultdict(list)
     for r in rows:
         sg[r["source"]].append(r)

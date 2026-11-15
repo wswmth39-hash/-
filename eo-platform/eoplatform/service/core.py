@@ -210,7 +210,7 @@ class Core:
                 # agent team has a validated live record for this market and duration.
                 crec = self._candidate_record(sig["market"], sig["duration"], "agents")
                 # single test: the 95% lower bound of the live record must exceed break-even
-                validated = bool(crec["n"] >= self.s.min_validation_samples and crec["wilson_lb"] > self.s.breakeven)
+                validated = bool(crec["n"] >= self.s.min_validation_samples and crec["wilson_lb"] > self.s.breakeven_for(sig["market"]))
                 decision = final["decision"]
                 notes = []
                 if decision != "WAIT" and not validated and self.s.require_validated_model:
@@ -363,13 +363,14 @@ class Core:
 
     async def svc_forward_tests(self) -> None:
         from ..learning import forward
+        await asyncio.sleep(30)        # evaluate soon after (re)start, not 10 min later (audit finding)
         while True:
-            await asyncio.sleep(600)
             try:
                 await asyncio.get_running_loop().run_in_executor(self.pool, forward.evaluate_all, self.db,
                                                                  self.registry, self.s)
             except Exception:
                 log.exception("forward test evaluation failed")
+            await asyncio.sleep(600)
 
     async def svc_news(self) -> None:
         while True:

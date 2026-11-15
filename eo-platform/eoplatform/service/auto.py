@@ -134,7 +134,7 @@ class AutoScanner:
                 c.metrics.inc(f"class_{sig['signal_class']}")
             cd = sig.get("confidence_detail") or {}
             lb = cd.get("wilson_lb")
-            edge = (lb * (1 + c.s.payout) - 1) if (lb is not None and sig["validated"]) else None
+            edge = (lb * (1 + c.s.payout_for(m["id"])) - 1) if (lb is not None and sig["validated"]) else None
             rows.append({"sig": sig, "edge": edge})
         return rows
 

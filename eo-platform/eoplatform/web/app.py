@@ -236,7 +236,7 @@ def create_app(settings: Settings, start_services: bool = True) -> FastAPI:
     # ------------------------------------------------------------------ learning
     @app.get("/api/performance")
     async def performance(days: float = 30, u=Depends(user)):
-        return stats.performance(core.db, settings.breakeven, since=time.time() - days * 86400)
+        return stats.performance(core.db, settings.breakeven, since=time.time() - days * 86400, payout_for=settings.payout_for)
 
     @app.get("/api/models")
     async def models(u=Depends(user)):
@@ -248,6 +248,11 @@ def create_app(settings: Settings, start_services: bool = True) -> FastAPI:
                                                    "threshold", "calibration", "walk_forward", "breakeven",
                                                    "promotion_note", "test_range")}
         return {"models": rows, "last_retrain": core.db.kv_get("last_retrain")}
+
+    @app.get("/api/models/summary")
+    async def models_summary(u=Depends(user)):
+        from ..learning.models_view import summary
+        return summary(core.db)
 
     @app.get("/api/strategies")
     async def strategies(u=Depends(user)):
@@ -341,9 +346,9 @@ def create_app(settings: Settings, start_services: bool = True) -> FastAPI:
             r["reasons"] = json.loads(r["reasons"] or "[]")
         return {
             "distribution_7d": dist, "live_published": acc(acted), "live_candidates": acc(res),
-            "by_market_duration": stats.performance(core.db, settings.breakeven, since=time.time() - 30 * 86400)
+            "by_market_duration": stats.performance(core.db, settings.breakeven, since=time.time() - 30 * 86400, payout_for=settings.payout_for)
             ["by_market_duration"],
-            "by_regime": stats.performance(core.db, settings.breakeven, since=time.time() - 30 * 86400)["by_regime"],
+            "by_regime": stats.performance(core.db, settings.breakeven, since=time.time() - 30 * 86400, payout_for=settings.payout_for)["by_regime"],
             "failed_predictions": failed, "ledger": ledger,
             "ledger_total": core.db.one("SELECT count(*) n FROM hypothesis_ledger")["n"],
             "forward_tests": core.db.all("SELECT * FROM forward_tests ORDER BY id DESC"),

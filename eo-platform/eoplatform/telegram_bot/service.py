@@ -161,7 +161,7 @@ class TelegramService:
         return [self.core.analyze_fast(market_id, d, trigger="telegram") for d in DURATIONS]
 
     def choose(self, m: dict, sigs: list[dict]) -> dict:
-        payout = self.core.s.payout
+        payout = self.core.s.payout_for(m["id"])
         qualified = []
         for s in sigs:
             lb = (s.get("confidence_detail") or {}).get("wilson_lb")

@@ -170,7 +170,7 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
     if conf:
         sig["confidence"] = round(conf["acc"], 4) if conf["acc"] is not None else None
         sig["confidence_detail"] = {"oos_accuracy": conf["acc"], "oos_samples": conf["n"],
-                                    "wilson_lb": conf["wilson_lb"], "breakeven": settings.breakeven,
+                                    "wilson_lb": conf["wilson_lb"], "breakeven": settings.breakeven_for(market["id"]),
                                     "model_trained_at": mrow["created_at"]}
     ctx.update(thr=thr, p_up=p_up)
     if meta.get("validated") and conf and conf.get("acc") is not None:
@@ -187,12 +187,36 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
                                  f"(دقة {rb['acc']*100:.1f}% على {rb['n']} صفقة خارج العينة) — انتظار")
         ctx["blocked"] = "regime"
         return done()
+    ood = out_of_distribution(meta.get("feature_ref"), row)
+    if ood:
+        sig["reasons"].insert(0, f"حالة غير مألوفة للنموذج: {len(ood)} مؤشرات خارج نطاق بيانات التدريب "
+                                 f"({'، '.join(ood[:3])}) — لا يُعتمد توقعه هنا، انتظار")
+        ctx["blocked"] = "ood"
+        return done()
     if abs(p_up - 0.5) < thr:
         sig["reasons"].insert(0, f"قوة التوقع {abs(p_up-0.5):.3f} أقل من العتبة المُتحقق منها {thr:.3f}")
         return done()
     sig["decision"] = sig["candidate"]
     sig["validated"] = True
     return done()
+
+
+OOD_Z, OOD_MIN = 10.0, 3
+
+
+def out_of_distribution(ref: dict | None, row: dict) -> list[str]:
+    """Features whose robust z-score vs. the model's TRAINING distribution exceeds OOD_Z.
+    ≥ OOD_MIN of them → the situation is outside what the model was validated on."""
+    if not ref:
+        return []
+    out = []
+    for k, med, sc in zip(F.FEATURES, ref.get("median") or [], ref.get("scale") or []):
+        v = row.get(k)
+        if med is None or not sc or v is None or v != v:
+            continue
+        if abs(v - med) / sc > OOD_Z:
+            out.append(k)
+    return out if len(out) >= OOD_MIN else []
 
 
 ECE_MAX = 0.03
@@ -219,7 +243,7 @@ ABSTAIN_CODES = [("لا توجد بيانات", "no_data"), ("متصلة غير 
                  ("مجمّد", "frozen_data"), ("قفزة سعرية غير طبيعية", "data_anomaly"), ("تقلب/سيولة", "abnormal_volatility"), ("هادئ جدًا", "quiet_market"),
                  ("خبر اقتصادي", "news_risk"), ("غير مربح تاريخيًا", "regime_blocked"),
                  ("لا يوجد نموذج", "no_validated_model"), ("لم يحقق دقة", "model_not_validated"),
-                 ("أقل من العتبة", "below_validated_threshold")]
+                 ("أقل من العتبة", "below_validated_threshold"), ("غير مألوفة للنموذج", "out_of_distribution")]
 
 
 def explain(sig: dict, ctx: dict, settings, perf) -> None:

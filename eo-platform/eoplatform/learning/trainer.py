@@ -127,6 +127,20 @@ def _reliability(p: np.ndarray, y: np.ndarray, bins: int = 10) -> list[dict]:
     return out
 
 
+def _feature_ref(X: np.ndarray) -> dict | None:
+    if X is None or len(X) < 200:
+        return None
+    med = np.nanmedian(X, axis=0)
+    mad = np.nanmedian(np.abs(X - med), axis=0) * 1.4826
+    return {"median": [None if not np.isfinite(v) else float(v) for v in med],
+            "scale": [None if not np.isfinite(v) or v <= 0 else float(v) for v in mad]}
+
+
+def _features_hash() -> str:
+    import hashlib
+    return hashlib.sha256(",".join(F.FEATURES).encode()).hexdigest()[:12]
+
+
 def _thr_acc(p: np.ndarray, y: np.ndarray, thr: float) -> tuple[int, int]:
     sel = np.abs(p - 0.5) >= thr
     return int(((p[sel] > 0.5).astype(int) == y[sel]).sum()), int(sel.sum())
@@ -147,7 +161,8 @@ def train_one(db: DB, registry: Registry, settings: Settings, market: dict, dura
     from . import validation as V
     ds = ds if ds is not None else build_dataset(bars, duration, delay_s=settings.exec_delay_s)
     z = V.z_family(family)
-    required = settings.breakeven + settings.cost_buffer
+    payout, breakeven = settings.payout_for(market["id"]), settings.breakeven_for(market["id"])
+    required = breakeven + settings.cost_buffer
     res = {"market": market["id"], "duration": duration, "source": source, "samples": int(len(ds.y)), "spec": spec}
     if len(ds.y) < MIN_SAMPLES:
         res["status"] = f"insufficient data ({len(ds.y)} < {MIN_SAMPLES} samples)"
@@ -186,15 +201,16 @@ def train_one(db: DB, registry: Registry, settings: Settings, market: dict, dura
                                                      s_["wins"], s_["acc"], s_["wilson_lb"],
                                                      json.dumps({"source": source, "spec": spec, **s_})))
         lb = g["lb"]
-        ev = {"acc": wf.acc, "n": wf.trades_n, "ev_per_unit": wf.acc * settings.payout - (1 - wf.acc),
-              "ev_per_unit_lb": lb * settings.payout - (1 - lb), "required_accuracy": required}
+        ev = {"acc": wf.acc, "n": wf.trades_n, "payout": payout, "ev_per_unit": wf.acc * payout - (1 - wf.acc),
+              "ev_per_unit_lb": lb * payout - (1 - lb), "required_accuracy": required,
+              "note": "training labels drop exact ties; live ties (refunds) dilute EV per trade further"}
         regs = np.array([regime(dict(zip(F.FEATURES, row))) for row in wf.trade_X])
         hit = (wf.trade_p > 0.5).astype(int) == wf.trade_y
         for rg in np.unique(regs):
             m_ = regs == rg
             nr, ar = int(m_.sum()), float(hit[m_].mean())
             regime_stats[str(rg)] = {"n": nr, "acc": ar, "lb95": wilson_lb(int(hit[m_].sum()), nr),
-                                     "blocked": nr >= REGIME_MIN_N and ar < settings.breakeven}
+                                     "blocked": nr >= REGIME_MIN_N and ar < breakeven}
 
     validated = bool(g["validated"])
     gate_note = None if validated else "; ".join(g["reasons"])
@@ -205,13 +221,17 @@ def train_one(db: DB, registry: Registry, settings: Settings, market: dict, dura
         "train_samples": int(wf.folds[-1]["fit_samples"]) if wf.folds else 0,
         "test_samples": int(wf.trades_n), "data_range": [float(ds.ts[0]), float(ds.ts[-1])],
         "test_range": [wf.folds[0]["block"][0], wf.folds[-1]["block"][1]] if wf.folds else None,
-        "test_accuracy": wf.acc, "calibration": table, "threshold": thr, "breakeven": settings.breakeven,
+        "test_accuracy": wf.acc, "calibration": table, "threshold": thr, "breakeven": breakeven, "payout": payout,
         "required_accuracy": required, "walk_forward": wf.folds, "fold_consistent": g["consistent"],
         "strategies": strategies,
         "baseline_check": {"passed": g["beats_baseline"], "best_baseline": g["best_baseline"], "model_gate_lb": g["lb"]},
         "z_gate": z, "family_size": family, "gates": g, "calibration_quality": calib, "expected_value": ev,
         "regime_stats": regime_stats, "validated": validated, "gate_note": gate_note,
         "features": F.FEATURES, "analysis_period": P,
+        # out-of-distribution reference (robust per-feature centre/scale of the TRAINING samples only)
+        "feature_ref": _feature_ref(ds.X[: int(wf.folds[-1]["fit_samples"])] if wf.folds else ds.X),
+        "training_data": {"source": source, "samples": int(len(ds.y)), "bars_range": [float(ds.ts[0]), float(ds.ts[-1])],
+                          "exec_delay_s": settings.exec_delay_s, "features_hash": _features_hash()},
     }
 
     champ = registry.champion(market["id"], duration)
@@ -310,7 +330,7 @@ def revalidate(registry: Registry, settings: Settings, model_row: dict, ds) -> t
     idx = np.arange(cut, len(ds.y))
     idx = idx[non_overlapping(ds.ts[idx], model_row["duration"])]     # independent trades only
     k, n = _thr_acc(m.predict(ds.X[idx]), ds.y[idx], thr)
-    required = settings.breakeven + settings.cost_buffer
+    required = settings.breakeven_for(model_row["market"]) + settings.cost_buffer
     ok = n >= settings.min_validation_samples and wilson_lb(k, n, z_family(1)) > required
     return ok, {"n": n, "acc": k / n if n else None}
 
@@ -327,7 +347,7 @@ def check_live_degradation(db: DB, registry: Registry, settings: Settings, min_n
             continue
         w = sum(1 for x in rows if x["status"] == "win")
         ub = 1 - wilson_lb(n - w, n)     # upper bound of 95% interval below break-even → clearly losing
-        if ub < settings.breakeven:
+        if ub < settings.breakeven_for(r["market"]):
             registry.demote(r["id"], f"live accuracy {w/n:.3f} on {n}, upper bound {ub:.3f} < break-even")
             db.event("warning", "model", f"سحب النموذج {r['market']} {r['duration']}ث: أداء حي أقل من التعادل")
             retired.append(f"{r['market']}:{r['duration']}")
