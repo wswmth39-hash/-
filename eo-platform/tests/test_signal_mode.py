@@ -83,7 +83,7 @@ def test_image_mode_end_to_end_on_telegram(settings):
     try:
         fake.command(OWNER, "/start")
         m = fake.wait_for(lambda m: "اختر السوق المُراد تحليله" in m["text"])
-        assert [t for t, _ in fake.buttons(m)] == [f"{n} {e}" for n, e in T.SIG_DISPLAY]  # exact screenshot
+        assert [t for t, _ in fake.buttons(m)] == [f"{n} {e}" for n, e, _ in T.SIG_MENU]  # exact screenshot order
         fake.press(OWNER, "sig:BTCUSD")                              # real-data signal still works on crypto
         r = fake.wait_for(lambda m: "📊 السوق : Bitcoin" in m["text"])
         assert ("شراء / Buy" in r["text"]) or ("بيع / Sell" in r["text"])   # always a direction
@@ -114,9 +114,12 @@ def test_screenshot_markets_shown_but_never_fabricate_a_signal(settings):
         fake.command(OWNER, "/start")
         m = fake.wait_for(lambda m: "اختر السوق المُراد تحليله" in m["text"])
         btns = fake.buttons(m)
-        labels = [t for t, _ in btns]
-        assert labels == [f"{name} {emoji}" for name, emoji in T.SIG_DISPLAY]   # exact screenshot, nothing else
-        assert all(d.startswith("sigx:") for _, d in btns)
+        assert [t for t, _ in btns] == [f"{n} {e}" for n, e, _ in T.SIG_MENU]   # exact screenshot order
+        assert "Bitcoin/USD ⚡" in [t for t, _ in btns] and "Apple 🍎" in [t for t, _ in btns]
+        # a stock/OTC display market → honest no-data; a real crypto (Ethereum/USD) → real signal
+        fake.press(OWNER, [d for t, d in btns if t == "Apple 🍎"][0])
+        a = fake.wait_for(lambda m: "Apple" in m["text"])
+        assert "لا تتوفر بيانات" in a["text"] and "بيع" not in a["text"] and "شراء" not in a["text"]
         # pressing a screenshot market → honest "no data", never a buy/sell
         fake.press(OWNER, "sigx:1")                                        # Smarty
         r = fake.wait_for(lambda m: "Smarty" in m["text"])

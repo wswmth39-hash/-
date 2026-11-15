@@ -339,35 +339,42 @@ def status_text(s: dict) -> str:
 
 # ---------------------------------------------------------------- image-style signal mode (owner's design)
 SIG_WELCOME = "📊 اختر السوق المُراد تحليله:"
-SIG_MARKETS = [          # only markets with GENUINE live data (Binance reference prices)
-    ("BTCUSD", "Bitcoin", "₿"), ("ETHUSD", "Ethereum", "💠"),
-    ("LTCUSD", "Litecoin", "🔷"), ("XRPUSD", "Ripple", "💧"),
+# The owner's exact screenshot menu, in order: (label, emoji, real_market_id).
+# A non-empty id (BTC/ETH) has GENUINE Binance data and gives a real signal; "" markets are
+# ExpertOption-only / stocks / OTC with NO legitimate external feed — shown for the exact look,
+# and pressing them says so honestly, never a fabricated buy/sell.
+SIG_MENU = [
+    ("Football Index", "⚽", ""), ("Smarty", "🧠", ""), ("USD/NGN (OTC)", "🇳🇬", ""),
+    ("EUR/USD (OTC)", "🇪🇺", ""), ("GBP/USD (OTC)", "🇬🇧", ""), ("USD/JPY (OTC)", "🇯🇵", ""),
+    ("Gold", "🪙", ""), ("Silver", "⚪", ""),
+    ("Bitcoin/USD", "⚡", "BTCUSD"), ("Ethereum/USD", "💎", "ETHUSD"),
+    ("Apple", "🍎", ""), ("Google (Alphabet)", "🔍", ""), ("Facebook", "👤", ""), ("Amazon", "📦", ""),
+    ("Tesla", "🚗", ""), ("Brent Oil", "🛢️", ""), ("EUR/JPY", "💹", ""), ("AUD/CAD", "🇦🇺", ""),
+    ("NZD/USD", "🇳🇿", ""), ("Intel (OTC)", "▪️", ""), ("Netflix", "🎬", ""), ("Boeing", "✈️", ""),
+    ("McDonald's", "🍔", ""),
 ]
-# The owner's screenshot markets, shown for the exact look. ExpertOption-only / OTC assets have
-# NO legitimate external price source, so pressing them says so honestly — never a fabricated signal.
-SIG_DISPLAY = [
-    ("Football Index", "⚽"), ("Smarty", "🧠"), ("USD/NGN (OTC)", "🇳🇬"), ("EUR/USD (OTC)", "🇪🇺"),
-    ("GBP/USD (OTC)", "🇬🇧"), ("USD/JPY (OTC)", "🇯🇵"), ("Gold", "🪙"), ("Silver", "⚪"),
-]
+SIG_LABEL = {mid: (name, emoji) for name, emoji, mid in SIG_MENU if mid}   # real id → (label, emoji)
 SIG_DUR_AR = {30: "30 ثانية", 60: "دقيقة واحدة", 120: "دقيقتان", 300: "5 دقائق"}
 
 
 def sig_markets_keyboard() -> InlineKeyboardMarkup:
-    # Exactly the owner's screenshot: the 8 markets with their emojis, one per row, nothing else.
-    rows = [[btn(f"{name} {emoji}", f"sigx:{i}")] for i, (name, emoji) in enumerate(SIG_DISPLAY)]
+    # Exactly the owner's screenshots: one market per row, in order, with its emoji.
+    rows = []
+    for i, (name, emoji, mid) in enumerate(SIG_MENU):
+        rows.append([btn(f"{name} {emoji}", f"sig:{mid}" if mid else f"sigx:{i}")])
     return InlineKeyboardMarkup(rows)
 
 
 def sig_nodata_text(idx: int) -> str:
-    name, emoji = SIG_DISPLAY[idx]
+    name, emoji, _ = SIG_MENU[idx]
     return (f"📊 السوق : {esc(name)} {emoji}\n\n"
             "⏳ لا تتوفر بيانات أسعار حقيقية لهذا السوق.\n"
             "لا تُعرض إشارة دون سعر فعلي.")
 
 
 def sig_result_text(r: dict) -> str:
-    emoji = dict((m, e) for m, _, e in SIG_MARKETS).get(r["market"], "📊")
-    name = r.get("market_name") or r["market"]
+    label, emoji = SIG_LABEL.get(r["market"], (r.get("market_name") or r["market"], "📊"))
+    name = label
     if not r.get("ok"):
         state = STATE_AR.get(r.get("data_state"), "غير متاحة")
         return (f"📊 السوق : {esc(name)} {emoji}\n\n"
