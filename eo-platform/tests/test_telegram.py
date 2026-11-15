@@ -245,6 +245,9 @@ def test_group_and_channel_messages_are_ignored_without_any_reply(running):
     assert any("المحادثات الخاصة فقط" in a.get("text", "") for a in fake.answers)  # private toast only
     fake.command(OWNER, "/start")                           # the same owner in private still works
     fake.wait_for(lambda m: m["chat_id"] == OWNER and "EO_PredictorBot" in m["text"])
+    assert _wait(lambda: bot.state()["replies_ok"].get("cmd_start") == 1)   # counted only when answered
+    st = bot.state()
+    assert st["denied"] == 0 and st["updates_handled"] == 1 and str(OWNER) not in str(st)
 
 
 def test_bot_leaves_any_group_it_is_added_to(running):

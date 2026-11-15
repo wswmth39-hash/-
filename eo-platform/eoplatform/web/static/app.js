@@ -344,7 +344,7 @@ function tgView(tg) {
     `<b>🔴 تعارض 409:</b> نسخة أخرى من ${nm} تعمل بالرمز نفسه (جهاز آخر أو نافذة أخرى أو Docker). Telegram يوزّع الرسائل بين النسختين فتصبح الردود غير منتظمة. <b>أوقف النسخة الأخرى.</b><br>تعارضات منذ التشغيل: ${esc(tg.conflicts_total)} · آخرها ${esc(fmtT(tg.last_conflict_at))}`];
   if (!tg.polling) return ['Telegram: غير متصل', 'bad', 'البوت لم يبدأ الاستطلاع', 'الرمز مضبوط لكن البوت لم يتصل بعد. راجع سجل الأحداث أو شغّل <span class="ltr">python -m eoplatform telegram-check</span>.'];
   const mismatch = tg.username_match === false ? `<br>⚠️ الرمز يخص ${nm} وليس <span class="ltr">@${esc(tg.expected_username)}</span>.` : '';
-  const extra = `<br>محادثات خاصة فقط · رسائل مجموعات تجاهلها: ${esc(tg.ignored_non_private)} · مجموعات غادرها: ${esc(tg.groups_left)} · تعارضات 409 سابقة: ${esc(tg.conflicts_total)}${mismatch}`;
+  const extra = `<br>رسائل حقيقية عولجت: ${esc(tg.updates_handled ?? 0)} (رُفض منها ${esc(tg.denied ?? 0)})${tg.last_update_at ? ' · آخرها ' + esc(fmtT(tg.last_update_at)) : ''}<br>محادثات خاصة فقط · رسائل مجموعات تجاهلها: ${esc(tg.ignored_non_private)} · مجموعات غادرها: ${esc(tg.groups_left)} · تعارضات 409 سابقة: ${esc(tg.conflicts_total)}${mismatch}`;
   if (tg.error_active) return ['Telegram: خطأ شبكة', 'warn', tg.last_error, `<b>🟡 خطأ في الاستطلاع:</b> ${esc(tg.last_error)} — يعيد المحاولة تلقائيًا${extra}`];
   return [`Telegram: ${name}`, tg.username_match === false ? 'warn' : 'ok', 'الاستطلاع يعمل', `<b>🟢 ${nm} يعمل</b> (استطلاع طويل، نسخة واحدة)${extra}`];
 }

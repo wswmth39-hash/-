@@ -73,6 +73,11 @@ class EOTelegramBot:
         self.last_error_at: float | None = None
         self.ignored_non_private = 0
         self.groups_left = 0
+        # real-traffic evidence (counts only — no user IDs, chat IDs or message text)
+        self.updates_handled = 0
+        self.replies_ok: dict[str, int] = {}     # handler name → handled and answered without error
+        self.denied = 0
+        self.last_update_at: float | None = None
         b = ApplicationBuilder().token(token).concurrent_updates(True)
         if base_url:
             b = b.base_url(base_url).base_file_url(base_url.replace("/bot", "/file/bot"))
@@ -130,9 +135,15 @@ class EOTelegramBot:
                     except TelegramError:
                         pass
                 return None
+            self.updates_handled += 1
+            self.last_update_at = time.time()
             if not self._authorised(update):
-                return await self._deny(update)
-            return await fn(self, update, ctx)
+                await self._deny(update)
+                self.denied += 1
+                return None
+            out = await fn(self, update, ctx)
+            self.replies_ok[fn.__name__] = self.replies_ok.get(fn.__name__, 0) + 1
+            return out
         return wrapper
 
     # ------------------------------------------------------------------ commands
@@ -277,7 +288,9 @@ class EOTelegramBot:
                 "last_conflict_at": self.last_conflict_at, "errors_total": self.errors_total,
                 "last_error": self.last_error, "last_error_at": self.last_error_at,
                 "error_active": bool(self.last_error_at and now - self.last_error_at < ERROR_WINDOW_S),
-                "ignored_non_private": self.ignored_non_private, "groups_left": self.groups_left}
+                "ignored_non_private": self.ignored_non_private, "groups_left": self.groups_left,
+                "updates_handled": self.updates_handled, "replies_ok": dict(self.replies_ok), "denied": self.denied,
+                "last_update_at": self.last_update_at}
 
     async def on_error(self, update, ctx: ContextTypes.DEFAULT_TYPE):
         log.error("telegram handler error: %s", type(ctx.error).__name__)
