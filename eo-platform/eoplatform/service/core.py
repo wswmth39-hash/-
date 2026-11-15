@@ -96,6 +96,7 @@ class Core:
         self.agent_lock = asyncio.Semaphore(1)  # one LLM team at a time: protects CPU/RAM
         self.sup: Supervisor | None = None
         self.started = time.time()
+        self.telegram = None          # EOTelegramBot once the telegram_bot service has started
         self.agent_activity: list[dict] = []
         self.binance: BinanceProvider | None = None
         self._bg: set[asyncio.Task] = set()  # keep references so background runs aren't GC'd
@@ -345,7 +346,8 @@ class Core:
         await bot.start()
         try:
             while True:
-                await asyncio.sleep(3600)
+                await asyncio.sleep(15)
+                bot.tick()             # reports when a 409 polling conflict has ended
         finally:
             await bot.stop()
 
@@ -422,6 +424,8 @@ class Core:
                           "auto_enabled": self.execution.config()["auto_enabled"]},
             "llm": {k: v for k, v in self.llm.health().items() if k != "models"} | {"model": self.s.llm_model},
             "monitor_heartbeat": self.db.kv_get("monitor_heartbeat"),
+            "telegram": (self.telegram.state() if self.telegram is not None
+                         else {"enabled": bool(self.s.telegram_token), "polling": False}),
             "resources": {"max_rss_mb": round(usage.ru_maxrss / 1024, 1), "db_mb": round(db_size / 2**20, 2),
                           "disk_free_mb": round(shutil.disk_usage(self.s.home).free / 2**20)},
         }

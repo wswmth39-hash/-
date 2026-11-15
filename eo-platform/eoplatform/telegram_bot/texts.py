@@ -9,18 +9,29 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 PAGE = 8
 DUR_AR = {30: "30 ثانية", 60: "دقيقة واحدة", 120: "دقيقتان", 300: "5 دقائق"}
 DEC_AR = {"BUY": "🟢 شراء (BUY)", "SELL": "🔴 بيع (SELL)", "WAIT": "⏸ انتظار (WAIT)"}
-STATE_AR = {"LIVE": "🟢 حية", "DELAYED": "🟡 متأخرة", "STALE": "🟠 قديمة", "OFFLINE": "⚪ غير متاحة"}
+STATE_AR = {"LIVE": "🟢 حية", "DELAYED": "🟡 متأخرة", "STALE": "🟠 قديمة", "OFFLINE": "⚪ غير متاحة",
+            "LOADING": "⏳ قيد التحميل"}
 SRC_AR = {"binance": "Binance — بيانات مرجعية (ليست أسعار ExpertOption ولا OTC)",
           "expertoption": "ExpertOption (عبر الجسر)", "import": "بيانات مستوردة"}
-DISCLAIMER = "⚠️ تحليل فقط — لا تُنفَّذ أي صفقة حقيقية، ولا يوجد ضمان لأي ربح."
+BOT_NAME = "EO_PredictorBot"
+# "EO" in the name must never read as official: every entry point says so explicitly.
+NOT_AFFILIATED = (f"ℹ️ {BOT_NAME} أداة تحليل مستقلة، <b>غير تابعة لشركة ExpertOption</b> "
+                  "ولا مرتبطة بها ولا معتمدة منها.")
+DISCLAIMER = ("⚠️ تحليل فقط — لا تُنفَّذ أي صفقة حقيقية، ولا يوجد ضمان لأي ربح.\n"
+              f"ℹ️ {BOT_NAME} غير تابع لشركة ExpertOption.")
 
-WELCOME = "مرحباً بك في ExpertOption AI\nاختر السوق الذي تريد تحليله:"
-HELP = ("<b>المساعدة</b>\n"
+WELCOME = f"مرحباً بك في {BOT_NAME}\n{NOT_AFFILIATED}\nاختر السوق الذي تريد تحليله:"
+LOADING_NOTE = ("⏳ المنصة بدأت التشغيل قبل {age} ث، وبيانات السوق ما زالت قيد التحميل "
+                "(تنزيل السجل والاتصال بالمصدر يستغرقان نحو دقيقة). أعد المحاولة بعد قليل.")
+PRIVATE_ONLY = f"🔒 {BOT_NAME} يعمل في المحادثات الخاصة فقط."
+HELP = (f"<b>المساعدة — {BOT_NAME}</b>\n"
         "• اضغط على أي سوق ليُحلَّل فورًا بمحرك المنصة نفسه، ويختار المحرك المدة المدعومة تجريبيًا.\n"
         "• القرار قد يكون <b>انتظار</b>: هذا قرار صحيح عندما لا توجد أفضلية مثبتة إحصائيًا.\n"
         "• لا تُعرض ثقة إلا من نموذج مُتحقق منه، ولا احتمال إلا إذا كان مُعايرًا.\n\n"
         "<b>الأوامر</b>\n/start القائمة الرئيسية\n/markets عرض الأسواق (أو /markets eur للبحث)\n"
-        "/status حالة النظام\n/history آخر تحليلاتك\n/help المساعدة\n\n" + DISCLAIMER)
+        "/status حالة النظام\n/history آخر تحليلاتك\n/help المساعدة\n\n"
+        "• يعمل البوت في المحادثات الخاصة فقط، ويغادر أي مجموعة يُضاف إليها.\n\n"
+        + NOT_AFFILIATED + "\n" + DISCLAIMER)
 
 
 def esc(x) -> str:
@@ -35,6 +46,9 @@ def fmt_price(p) -> str:
 
 def fmt_time(ts) -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(ts))
+
+
+STATE_ICON = {"LIVE": "🟢", "LOADING": "⏳"}
 
 
 def main_menu() -> InlineKeyboardMarkup:
@@ -57,7 +71,7 @@ def markets_keyboard(markets: list[dict], page: int, kind: str, menu: bool = Fal
     chunk = markets[page * PAGE:(page + 1) * PAGE]
     for i in range(0, len(chunk), 2):
         rows.append([InlineKeyboardButton(
-            f"{'🟢' if m['state'] == 'LIVE' else '⚪'} {m['name']}" + (" OTC" if m["kind"] == "otc" and "OTC" not in m["name"] else ""),
+            f"{STATE_ICON.get(m['state'], '⚪')} {m['name']}" + (" OTC" if m["kind"] == "otc" and "OTC" not in m["name"] else ""),
             callback_data=f"an:{m['id']}") for m in chunk[i:i + 2]])
     nav = []
     if page > 0:
@@ -80,9 +94,11 @@ def markets_keyboard(markets: list[dict], page: int, kind: str, menu: bool = Fal
 
 def markets_text(markets: list[dict], kind: str) -> str:
     live = sum(1 for m in markets if m["state"] == "LIVE")
+    loading = sum(1 for m in markets if m["state"] == "LOADING")
     return (f"<b>اختر السوق</b> ({len(markets)} سوقًا"
             + {"all": "", "regular": " عاديًا", "otc": " OTC"}[kind] + f"، منها {live} ببيانات حية 🟢)\n"
-            "⚪ = لا توجد بيانات حقيقية حاليًا لهذا السوق (سيظهر ذلك في النتيجة).")
+            + (f"⏳ = {loading} سوقًا بياناتها قيد التحميل بعد بدء التشغيل (نحو دقيقة).\n" if loading else "")
+            + "⚪ = لا توجد بيانات حقيقية حاليًا لهذا السوق (سيظهر ذلك في النتيجة).")
 
 
 def after_result_keyboard(market_id: str) -> InlineKeyboardMarkup:
@@ -102,9 +118,11 @@ def result_text(r: dict) -> str:
         lines.append(f"<b>المدة المقترحة:</b> {DUR_AR[r['horizon']]} (أعلى عائد متوقع متحفظ بين المدد المُتحقق منها)")
     if r.get("price") is not None and r.get("data_source"):
         lines.append(f"<b>السعر المرجعي:</b> {fmt_price(r['price'])}")
+    elif r.get("data_loading"):
+        lines.append("<b>السعر المرجعي:</b> ⏳ قيد التحميل — لم تصل بيانات حقيقية حديثة بعد")
     else:
         lines.append("<b>السعر المرجعي:</b> غير متاح — لا توجد بيانات حقيقية لهذا السوق")
-    state = STATE_AR.get(r.get("data_state"), "—")
+    state = STATE_AR["LOADING"] if r.get("data_loading") else STATE_AR.get(r.get("data_state"), "—")
     age = f" (آخر تحديث قبل {r['data_age']} ث)" if r.get("data_age") is not None else ""
     lines.append(f"<b>حالة السوق:</b> {esc(r.get('regime_ar') or '—')} · البيانات {state}{age}")
     c = r.get("confidence")
@@ -117,7 +135,11 @@ def result_text(r: dict) -> str:
     else:
         lines.append("<b>الثقة:</b> لا تُعرض — لا يوجد نموذج مُتحقق منه ومُعاير لهذا القرار")
     reason = (r.get("abstain") or {}).get("text") or (r["reasons"][0] if r.get("reasons") else "—")
+    if r.get("data_loading"):   # the engine only sees "no data"; during startup the true cause is loading
+        reason = "بيانات السوق قيد التحميل بعد بدء التشغيل — لا قرار قبل وصول بيانات حقيقية حديثة"
     lines.append(f"<b>سبب القرار:</b> {esc(reason)}")
+    if r.get("data_loading"):
+        lines.append(LOADING_NOTE.format(age=int(r.get("uptime_s") or 0)))
     if r.get("evidence_for"):
         lines.append("✅ <b>أدلة مؤيدة:</b> " + esc("؛ ".join(f"{e['agent']}: {e['facts'][0]}" for e in r["evidence_for"][:2] if e.get("facts"))))
     if r.get("evidence_against"):
@@ -125,7 +147,8 @@ def result_text(r: dict) -> str:
     lines.append("<b>المدد التي فُحصت:</b> " + "، ".join(
         f"{DUR_AR[e['duration']]}: {'شراء' if e['decision'] == 'BUY' else 'بيع' if e['decision'] == 'SELL' else 'انتظار'}"
         for e in r.get("evaluated", [])))
-    lines.append(f"<b>مصدر البيانات:</b> {esc(SRC_AR.get(r.get('data_source'), 'لا يوجد مصدر بيانات حقيقي متاح'))}")
+    no_src = "قيد التحميل" if r.get("data_loading") else "لا يوجد مصدر بيانات حقيقي متاح"
+    lines.append(f"<b>مصدر البيانات:</b> {esc(SRC_AR.get(r.get('data_source'), no_src))}")
     lines.append(f"<b>وقت التحليل:</b> {fmt_time(r['timestamp'])}")
     if r.get("duplicate"):
         lines.append("ℹ️ نتيجة التحليل الأخير نفسه (طلب مكرر خلال ثوانٍ).")
@@ -147,9 +170,14 @@ def history_text(rows: list[dict]) -> str:
 
 
 def status_text(s: dict) -> str:
-    out = ["<b>حالة النظام</b>", f"الخدمات: {'🟢 تعمل' if s['status'] == 'ok' else '🟡 بعضها يعيد التشغيل'}"]
+    out = [f"<b>حالة النظام — {BOT_NAME}</b>", f"الخدمات: {'🟢 تعمل' if s['status'] == 'ok' else '🟡 بعضها يعيد التشغيل'}"]
+    loading = s.get("data_loading")
+    if loading:
+        out.append(f"⏳ بدأ التشغيل قبل {int(s.get('uptime_s') or 0)} ث — بيانات الأسواق قيد التحميل (نحو دقيقة)")
+    out.append(telegram_line(s.get("telegram") or {}))
     for k, v in (s.get("providers") or {}).items():
-        out.append(f"• {esc(SRC_AR.get(k, k).split(' — ')[0])}: {'🟢 متصل (بيانات حديثة مُثبتة)' if v.get('proven') else '⚪ غير متصل'}")
+        off = "⏳ جارٍ الاتصال وتحميل البيانات" if loading else "⚪ غير متصل"
+        out.append(f"• {esc(SRC_AR.get(k, k).split(' — ')[0])}: {'🟢 متصل (بيانات حديثة مُثبتة)' if v.get('proven') else off}")
     out.append(f"• جسر ExpertOption: {'مفعّل' if s.get('bridge_enabled') else 'معطّل (لا بيانات ExpertOption ولا OTC)'}")
     out.append(f"• النموذج المحلي: {'🟢 ' + esc(s['llm'].get('model')) if s['llm'].get('ok') else '⚪ غير متاح'}")
     out.append(f"• أسواق ببيانات حية: {esc('، '.join(s['live_markets']) or 'لا يوجد')}")
@@ -159,3 +187,14 @@ def status_text(s: dict) -> str:
         out.append(f"• اختبار مستقبلي {esc(f['market'])} {DUR_AR.get(f['duration'], f['duration'])} ({esc(f['spec'])}): "
                    f"{esc(f['status'])} {f['n']}/{f['target_n']}")
     return "\n".join(out)
+
+
+def telegram_line(t: dict) -> str:
+    """Polling health of THIS bot process. A 409 Conflict means another process is polling with
+    the same token: Telegram then splits updates between them, so replies become erratic."""
+    if t.get("conflict"):
+        return (f"• بوت Telegram: 🔴 <b>تعارض 409</b> — نسخة أخرى من البوت تعمل بالرمز نفسه "
+                f"(تعارضات: {t.get('conflicts_total', 0)}). أوقف النسخة الأخرى؛ تعمل نسخة واحدة فقط.")
+    if t.get("last_error") and t.get("error_active"):
+        return f"• بوت Telegram: 🟡 خطأ في الاستطلاع ({esc(t['last_error'])}) — يعيد المحاولة تلقائيًا"
+    return "• بوت Telegram: 🟢 الاستطلاع يعمل (نسخة واحدة، محادثات خاصة فقط)"

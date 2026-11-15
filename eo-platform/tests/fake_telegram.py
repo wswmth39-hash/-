@@ -3,7 +3,9 @@
 python-telegram-bot is pointed at it with ``base_url``; it then exercises its real HTTP code
 path (form-encoded requests, JSON responses, long polling) without internet access.
 Supports getMe, deleteWebhook, setMyCommands, getUpdates, sendMessage, editMessageText,
-answerCallbackQuery. Records everything the bot sends."""
+answerCallbackQuery, leaveChat. Records everything the bot sends.
+Can simulate a 409 Conflict on getUpdates (``conflict = True``), as Telegram returns when a
+second process polls with the same token, and group / supergroup / channel chats."""
 from __future__ import annotations
 
 import json
@@ -16,12 +18,16 @@ BOT = {"id": 999, "is_bot": True, "first_name": "EO AI", "username": "eo_ai_test
 
 
 class FakeTelegram:
-    def __init__(self, token: str):
+    def __init__(self, token: str, username: str = BOT["username"]):
         self.token = token
+        self.me = {**BOT, "username": username}
         self.updates: list[dict] = []
         self.sent: list[dict] = []           # every sendMessage / editMessageText call
         self.answers: list[dict] = []
         self.calls: list[str] = []
+        self.left: list[int] = []            # chat ids passed to leaveChat
+        self.conflict = False                # True → getUpdates answers 409 Conflict
+        self.conflicts_served = 0
         self.cond = threading.Condition()
         self._uid = 0
         self._mid = 100
@@ -44,6 +50,11 @@ class FakeTelegram:
                     return self._send({"ok": False, "error_code": 401, "description": "Unauthorized"}, 401)
                 method = path[2]
                 fake.calls.append(method)
+                if method == "getUpdates" and fake.conflict:
+                    fake.conflicts_served += 1
+                    return self._send({"ok": False, "error_code": 409, "description":
+                                       "Conflict: terminated by other getUpdates request; make sure that only one "
+                                       "bot instance is running"}, 409)
                 self._send({"ok": True, "result": fake.handle(method, params)})
 
             def _send(self, obj, code=200):
@@ -63,8 +74,11 @@ class FakeTelegram:
 
     def handle(self, method: str, p: dict):
         if method == "getMe":
-            return BOT
+            return self.me
         if method in ("deleteWebhook", "setMyCommands", "close"):
+            return True
+        if method == "leaveChat":
+            self.left.append(int(p.get("chat_id", 0) or 0))
             return True
         if method == "answerCallbackQuery":
             self.answers.append(p)
@@ -101,21 +115,39 @@ class FakeTelegram:
     def user(self, uid: int) -> dict:
         return {"id": uid, "is_bot": False, "first_name": f"U{uid}"}
 
-    def command(self, uid: int, text: str) -> None:
+    @staticmethod
+    def chat(uid: int, chat: dict | None) -> dict:
+        return chat or {"id": uid, "type": "private"}
+
+    def command(self, uid: int, text: str, chat: dict | None = None) -> None:
         cmd = text.split()[0]
         self._push({"message": {"message_id": self._uid + 1, "date": int(time.time()), "text": text,
-                                "chat": {"id": uid, "type": "private"}, "from": self.user(uid),
+                                "chat": self.chat(uid, chat), "from": self.user(uid),
                                 "entities": [{"type": "bot_command", "offset": 0, "length": len(cmd)}]}})
 
-    def text(self, uid: int, text: str) -> None:
+    def text(self, uid: int, text: str, chat: dict | None = None) -> None:
         self._push({"message": {"message_id": self._uid + 1, "date": int(time.time()), "text": text,
-                                "chat": {"id": uid, "type": "private"}, "from": self.user(uid)}})
+                                "chat": self.chat(uid, chat), "from": self.user(uid)}})
 
-    def press(self, uid: int, data: str) -> None:
+    def press(self, uid: int, data: str, chat: dict | None = None) -> None:
         self._push({"callback_query": {"id": f"cq{self._uid + 1}", "from": self.user(uid), "chat_instance": "x",
                                        "data": data, "message": {"message_id": 50, "date": int(time.time()),
-                                                                 "text": "old", "chat": {"id": uid, "type": "private"},
+                                                                 "text": "old", "chat": self.chat(uid, chat),
                                                                  "from": BOT}}})
+
+    def added_to(self, uid: int, chat: dict, status: str = "member") -> None:
+        """``my_chat_member`` update: user ``uid`` added the bot to ``chat``."""
+        self._push({"my_chat_member": {"chat": chat, "from": self.user(uid), "date": int(time.time()),
+                                       "old_chat_member": {"status": "left", "user": BOT},
+                                       "new_chat_member": {"status": status, "user": BOT,
+                                                           **({"can_be_edited": False, "can_manage_chat": True,
+                                                               "can_change_info": True, "can_delete_messages": True,
+                                                               "can_invite_users": True, "can_restrict_members": True,
+                                                               "can_pin_messages": True, "can_promote_members": False,
+                                                               "is_anonymous": False, "can_manage_video_chats": True,
+                                                               "can_post_stories": False, "can_edit_stories": False,
+                                                               "can_delete_stories": False}
+                                                              if status == "administrator" else {})}}})
 
     def wait_for(self, pred, timeout: float = 10.0) -> dict:
         end = time.time() + timeout

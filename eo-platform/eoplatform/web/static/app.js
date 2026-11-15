@@ -211,6 +211,9 @@ async function refresh() {
     pv.binance ? `${pv.binance.detail} · آخر بيانات قبل ${pv.binance.last_data_age ?? '—'} ث` : 'لم يتصل');
   setPillText('#pill-llm', h.llm.ok ? `${h.llm.model}: جاهز` : 'النموذج المحلي: غير متاح', h.llm.ok ? 'ok' : 'warn', h.llm.detail);
   setPillText('#pill-news', h.news?.ok ? 'الأخبار: متاحة' : 'الأخبار: غير متاحة', h.news?.ok ? 'ok' : 'warn', h.news?.error || `${h.news?.events || 0} حدث`);
+  const tg = h.telegram || {};
+  $('#pill-tg').hidden = !tg.enabled;
+  if (tg.enabled) setPillText('#pill-tg', ...tgView(tg).slice(0, 3));
   const ex = OV.execution || {};
   setPillText('#pill-mode', ex.kill_switch ? 'إيقاف طارئ' : ex.halted ? 'التداول موقوف' : ex.mode === 'paper' ? (ex.auto_enabled ? 'AUTO · تجريبي' : 'تجريبي') : (ex.auto_enabled ? 'AUTO · تحليل فقط' : 'تحليل فقط'),
     ex.kill_switch || ex.halted ? 'bad' : ex.mode === 'paper' ? 'warn' : 'ok', ex.halt_reason || 'لا يوجد تداول حقيقي — غير متاح');
@@ -333,6 +336,19 @@ $('#mon-save').addEventListener('click', async () => {
   toast(c.enabled ? `المراقبة مفعّلة على ${c.markets.length} سوق` : 'المراقبة متوقفة');
 });
 
+// Telegram polling health → [pill text, dot class, tooltip, card body]. Never contains the token.
+function tgView(tg) {
+  const name = '@' + (tg.username || tg.expected_username || 'EO_PredictorBot');
+  const nm = `<span class="ltr">${esc(name)}</span>`;   // keeps "@" on the left inside RTL text
+  if (tg.conflict) return ['Telegram: تعارض 409', 'bad', 'نسخة أخرى من البوت تعمل بالرمز نفسه',
+    `<b>🔴 تعارض 409:</b> نسخة أخرى من ${nm} تعمل بالرمز نفسه (جهاز آخر أو نافذة أخرى أو Docker). Telegram يوزّع الرسائل بين النسختين فتصبح الردود غير منتظمة. <b>أوقف النسخة الأخرى.</b><br>تعارضات منذ التشغيل: ${esc(tg.conflicts_total)} · آخرها ${esc(fmtT(tg.last_conflict_at))}`];
+  if (!tg.polling) return ['Telegram: غير متصل', 'bad', 'البوت لم يبدأ الاستطلاع', 'الرمز مضبوط لكن البوت لم يتصل بعد. راجع سجل الأحداث أو شغّل <span class="ltr">python -m eoplatform telegram-check</span>.'];
+  const mismatch = tg.username_match === false ? `<br>⚠️ الرمز يخص ${nm} وليس <span class="ltr">@${esc(tg.expected_username)}</span>.` : '';
+  const extra = `<br>محادثات خاصة فقط · رسائل مجموعات تجاهلها: ${esc(tg.ignored_non_private)} · مجموعات غادرها: ${esc(tg.groups_left)} · تعارضات 409 سابقة: ${esc(tg.conflicts_total)}${mismatch}`;
+  if (tg.error_active) return ['Telegram: خطأ شبكة', 'warn', tg.last_error, `<b>🟡 خطأ في الاستطلاع:</b> ${esc(tg.last_error)} — يعيد المحاولة تلقائيًا${extra}`];
+  return [`Telegram: ${name}`, tg.username_match === false ? 'warn' : 'ok', 'الاستطلاع يعمل', `<b>🟢 ${nm} يعمل</b> (استطلاع طويل، نسخة واحدة)${extra}`];
+}
+
 async function loadStatus() {
   const [h, ev, mk] = await Promise.all([api('/api/health'), api('/api/events?limit=80'), api('/api/markets')]);
   const pv = h.providers || {};
@@ -343,6 +359,7 @@ async function loadStatus() {
     card('تقويم الأخبار', h.news?.ok ? 'ok' : 'warn', h.news?.ok ? `${esc(h.news.events)} حدث · آخر تحديث ${esc(fmtT(h.news.fetched_at))}` : esc(h.news?.error || 'غير متاح')) +
     card('التنبيهات', h.alerts.webhook_configured ? 'ok' : 'warn', h.alerts.webhook_configured ? `Webhook مفعّل · أُرسل ${esc(h.alerts.sent)} · فشل ${esc(h.alerts.failed)}` : 'التنبيهات تظهر هنا وفي السجل فقط. لإرسالها إلى جوالك اضبط EO_ALERT_WEBHOOK.') +
     card('النموذج اللغوي المحلي', h.llm.ok ? 'ok' : 'warn', `${esc(h.llm.model)}<br>${esc(h.llm.detail)}`) +
+    (h.telegram?.enabled ? card('بوت Telegram', tgView(h.telegram)[1], tgView(h.telegram)[3]) : '') +
     card('الموارد', 'ok', `ذاكرة قصوى: ${esc(h.resources.max_rss_mb)} MB<br>قاعدة البيانات: ${esc(h.resources.db_mb)} MB<br>مساحة حرة: ${esc(h.resources.disk_free_mb)} MB`) +
     card('مدة التشغيل', h.status === 'ok' ? 'ok' : 'warn', `${esc(Math.round(h.uptime / 60))} دقيقة · الحالة ${esc(h.status)}`);
   table('#svc-table', null, Object.entries(h.services).map(([n, s]) => `<tr><td class="ltr">${esc(n)}</td><td>${dot(s.state === 'running' ? 'ok' : 'bad')} ${esc(s.state)}</td><td>${esc(s.restarts)}</td><td class="small">${esc(s.last_error || '')}</td></tr>`));

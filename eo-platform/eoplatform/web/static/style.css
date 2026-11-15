@@ -16,6 +16,7 @@ button,select,input{font:inherit;color:inherit}
 .brand small{color:var(--muted);font-weight:400;font-size:12px;margin-inline-start:6px}
 .pills{display:flex;gap:6px;margin-inline-start:auto;flex-wrap:wrap}
 .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);font-size:12.5px;white-space:nowrap}
+.pill[hidden]{display:none}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
 .dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
 .layout{display:flex;min-height:calc(100vh - 54px)}

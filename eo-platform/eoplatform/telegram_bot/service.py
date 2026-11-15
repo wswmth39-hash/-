@@ -20,9 +20,15 @@ from collections import defaultdict, deque
 
 from ..config import DURATIONS
 from ..engine.fast import calibration_ok
-from ..markets import get_market, list_markets
+from ..markets import allowed_sources, get_market, list_markets
 
 log = logging.getLogger("eo.telegram")
+
+# After a (re)start the Binance provider first backfills 24 h of history (~1 min on a fresh
+# install). Inside this window a market whose live provider is enabled but not yet delivering
+# is shown as "loading", not "unavailable". Markets with no enabled provider (e.g. OTC while
+# the bridge is disabled) are never "loading": they stay "unavailable".
+STARTUP_GRACE_S = 120.0
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS telegram_requests (
@@ -69,9 +75,30 @@ class TelegramService:
                              for x in (m["id"], m["name"], m["name_ar"])):
                 continue
             src, state = self.core.hub.best_source(m)
+            if state != "LIVE" and self.data_loading(m):
+                state = "LOADING"
             out.append({**m, "source": src, "state": state})
-        # markets with live data first, then alphabetical
-        return sorted(out, key=lambda x: (x["state"] != "LIVE", x["source"] is None, x["kind"], x["name"]))
+        # markets with live data first, then those still loading after startup, then alphabetical
+        rank = {"LIVE": 0, "LOADING": 1}
+        return sorted(out, key=lambda x: (rank.get(x["state"], 2), x["source"] is None, x["kind"], x["name"]))
+
+    def uptime(self) -> float:
+        return max(0.0, time.time() - self.core.started)
+
+    def _live_sources(self) -> set[str]:
+        """Sources this process is actually configured to receive live data from."""
+        out = set()
+        if self.core.s.enable_binance:
+            out.add("binance")
+        if self.core.s.bridge_enabled:
+            out.add("expertoption")
+        return out
+
+    def data_loading(self, m: dict) -> bool:
+        """True only during the startup window AND when an enabled live provider may back the market."""
+        if self.uptime() >= STARTUP_GRACE_S:
+            return False
+        return bool(self._live_sources() & set(allowed_sources(m)))
 
     # ------------------------------------------------------------------ limits
     def _check_rate(self, uh: str) -> None:
@@ -170,6 +197,9 @@ class TelegramService:
             "supported_horizons": [s["duration"] for s in sigs
                                    if (s.get("model_status") or {}).get("state") == "validated"],
             "timestamp": best.get("timestamp") or time.time(), "signal_id": best.get("id"),
+            # loading never changes the decision (still WAIT); it only explains why data is missing
+            "data_loading": decision == "WAIT" and best.get("data_state") != "LIVE" and self.data_loading(m),
+            "uptime_s": round(self.uptime()),
         }
 
     def _meta(self, sig: dict) -> dict | None:
@@ -206,4 +236,8 @@ class TelegramService:
         return {"providers": h["providers"], "llm": h["llm"], "services": h["services"], "status": h["status"],
                 "champions": champs, "forward_tests": fwd,
                 "live_markets": [m["id"] for m in self.markets() if m["state"] == "LIVE"],
-                "bridge_enabled": self.core.s.bridge_enabled}
+                "bridge_enabled": self.core.s.bridge_enabled,
+                "uptime_s": round(self.uptime()),
+                "data_loading": self.uptime() < STARTUP_GRACE_S and bool(self._live_sources())
+                and not any(v.get("proven") for v in (h["providers"] or {}).values()),
+                "telegram": h.get("telegram") or {}}

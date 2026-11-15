@@ -5,21 +5,32 @@
   With an empty list nobody is authorised (secure default); an unauthorised user is told
   their own numeric ID so the owner can add it, and nothing else is revealed.
 * The bot token is read from EO_TELEGRAM_TOKEN and redacted from every log record.
+* Private chats only: updates from groups, supergroups and channels are ignored without any
+  reply (a reply would leak results to every group member), and the bot leaves any group it
+  is added to.
+* Polling health is tracked: a 409 Conflict (another process polling with the same token) is
+  detected, raised as an alert and reported in /status and on the dashboard.
 """
 from __future__ import annotations
 
 import logging
 import re
+import time
 
 from telegram import BotCommand, Update
-from telegram.constants import ParseMode
-from telegram.ext import (Application, ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes,
-                          MessageHandler, filters)
+from telegram.constants import ChatMemberStatus, ChatType, ParseMode
+from telegram.error import Conflict, TelegramError
+from telegram.ext import (Application, ApplicationBuilder, CallbackQueryHandler, ChatMemberHandler, CommandHandler,
+                          ContextTypes, MessageHandler, filters)
 
 from . import texts as T
 from .service import EngineUnavailable, RateLimited, TelegramService
 
 log = logging.getLogger("eo.telegram")
+
+CONFLICT_WINDOW_S = 90.0   # PTB retries failed polls with back-off ≤ 30 s, so an ongoing conflict
+                           # re-occurs well inside this window; none for 90 s ⇒ resolved
+ERROR_WINDOW_S = 90.0
 
 COMMANDS = [("start", "القائمة الرئيسية"), ("markets", "عرض الأسواق"), ("status", "حالة النظام"),
             ("history", "آخر التحليلات"), ("help", "المساعدة")]
@@ -52,6 +63,16 @@ class EOTelegramBot:
         self.allowed = allowed
         self.service = TelegramService(core)
         install_redactor(token)
+        self.username: str | None = None
+        self.polling = False
+        self.conflicts_total = 0
+        self.last_conflict_at: float | None = None
+        self._conflict_reported = False
+        self.errors_total = 0
+        self.last_error: str | None = None
+        self.last_error_at: float | None = None
+        self.ignored_non_private = 0
+        self.groups_left = 0
         b = ApplicationBuilder().token(token).concurrent_updates(True)
         if base_url:
             b = b.base_url(base_url).base_file_url(base_url.replace("/bot", "/file/bot"))
@@ -63,10 +84,16 @@ class EOTelegramBot:
         a.add_handler(CommandHandler("history", self.cmd_history))
         a.add_handler(CommandHandler("help", self.cmd_help))
         a.add_handler(CallbackQueryHandler(self.on_button))
+        a.add_handler(ChatMemberHandler(self.on_my_member, ChatMemberHandler.MY_CHAT_MEMBER))
         a.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_text))
         a.add_error_handler(self.on_error)
 
     # ------------------------------------------------------------------ helpers
+    @staticmethod
+    def _is_private(update: Update) -> bool:
+        c = update.effective_chat
+        return bool(c and c.type == ChatType.PRIVATE)
+
     def _authorised(self, update: Update) -> bool:
         u = update.effective_user
         return bool(u and u.id in self.allowed)
@@ -93,6 +120,16 @@ class EOTelegramBot:
 
     def guard(fn):  # noqa: N805 — decorator inside the class
         async def wrapper(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+            if not self._is_private(update):
+                # checked BEFORE authorisation: nothing (not even the refusal with a user ID) is
+                # ever posted into a group or channel
+                self.ignored_non_private += 1
+                if update.callback_query:   # private toast to the presser only, stops the spinner
+                    try:
+                        await update.callback_query.answer(T.PRIVATE_ONLY)
+                    except TelegramError:
+                        pass
+                return None
             if not self._authorised(update):
                 return await self._deny(update)
             return await fn(self, update, ctx)
@@ -187,6 +224,61 @@ class EOTelegramBot:
                                     T.InlineKeyboardMarkup([T.back_row()]))
         await self._send(update, T.result_text(r), T.after_result_keyboard(market_id))
 
+    async def on_my_member(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        """Bot added to a group/supergroup/channel → leave it immediately (private chats only)."""
+        cm = update.my_chat_member
+        if cm is None or cm.chat.type == ChatType.PRIVATE:
+            return
+        if cm.new_chat_member.status in (ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR,
+                                         ChatMemberStatus.RESTRICTED):
+            try:
+                await ctx.bot.leave_chat(cm.chat.id)
+                self.groups_left += 1
+                # chat title/ID are not logged: they may identify people
+                self.core.db.event("warning", "telegram", f"أُضيف البوت إلى محادثة من نوع {cm.chat.type} "
+                                   "فغادرها تلقائيًا (يعمل في المحادثات الخاصة فقط)")
+            except TelegramError as e:
+                log.warning("leave_chat failed: %s", type(e).__name__)
+
+    # ------------------------------------------------------------------ polling health
+    def on_poll_error(self, exc: TelegramError) -> None:
+        """PTB polling error callback (sync, runs on the bot's event loop). Never re-raises."""
+        now = time.time()
+        if isinstance(exc, Conflict):
+            self.conflicts_total += 1
+            self.last_conflict_at = now
+            log.warning("telegram polling conflict (409): another instance is using the same token")
+            if not self._conflict_reported:
+                self._conflict_reported = True
+                self.core.alert("critical", "telegram",
+                                "تعارض Telegram 409: نسخة أخرى من البوت تعمل بالرمز نفسه. Telegram يوزّع الرسائل بين "
+                                "النسختين فتصبح الردود غير منتظمة. أوقف النسخة الأخرى (جهاز آخر أو نافذة أخرى أو Docker).")
+            return
+        self.errors_total += 1
+        self.last_error = type(exc).__name__          # type only: messages may echo request URLs
+        self.last_error_at = now
+        log.warning("telegram polling error: %s", self.last_error)
+
+    def conflict_active(self, now: float | None = None) -> bool:
+        return bool(self.last_conflict_at and (now or time.time()) - self.last_conflict_at < CONFLICT_WINDOW_S)
+
+    def tick(self) -> None:
+        """Called periodically by the platform service: emits the 'conflict resolved' event."""
+        if self._conflict_reported and not self.conflict_active():
+            self._conflict_reported = False
+            self.core.db.event("info", "telegram", "انتهى تعارض Telegram 409: هذه النسخة وحدها تستقبل الرسائل الآن")
+
+    def state(self) -> dict:
+        """Safe to expose to the dashboard: never contains the token, chat IDs or user IDs."""
+        now = time.time()
+        return {"enabled": True, "polling": self.polling, "username": self.username, "expected_username": T.BOT_NAME,
+                "username_match": (self.username or "").lower() == T.BOT_NAME.lower() if self.username else None,
+                "private_only": True, "conflict": self.conflict_active(now), "conflicts_total": self.conflicts_total,
+                "last_conflict_at": self.last_conflict_at, "errors_total": self.errors_total,
+                "last_error": self.last_error, "last_error_at": self.last_error_at,
+                "error_active": bool(self.last_error_at and now - self.last_error_at < ERROR_WINDOW_S),
+                "ignored_non_private": self.ignored_non_private, "groups_left": self.groups_left}
+
     async def on_error(self, update, ctx: ContextTypes.DEFAULT_TYPE):
         log.error("telegram handler error: %s", type(ctx.error).__name__)
 
@@ -195,11 +287,18 @@ class EOTelegramBot:
         await self.app.initialize()
         await self.app.bot.set_my_commands([BotCommand(c, d) for c, d in COMMANDS])
         await self.app.start()
-        await self.app.updater.start_polling(drop_pending_updates=True, allowed_updates=["message", "callback_query"])
-        me = self.app.bot.username
-        self.core.db.event("info", "telegram", f"بوت Telegram متصل باسم @{me} (استطلاع طويل، لا يُكشف أي منفذ)")
+        await self.app.updater.start_polling(drop_pending_updates=True, error_callback=self.on_poll_error,
+                                             allowed_updates=["message", "callback_query", "my_chat_member"])
+        self.polling = True
+        me = self.username = self.app.bot.username
+        self.core.db.event("info", "telegram", f"بوت Telegram متصل باسم @{me} (استطلاع طويل، محادثات خاصة فقط، "
+                                               "لا يُكشف أي منفذ)")
+        if (me or "").lower() != T.BOT_NAME.lower():
+            self.core.db.event("warning", "telegram", f"الرمز في EO_TELEGRAM_TOKEN يخص @{me} وليس @{T.BOT_NAME}. "
+                                                      "تأكد أنك نسخت رمز البوت الصحيح من BotFather.")
 
     async def stop(self) -> None:
+        self.polling = False
         try:
             if self.app.updater and self.app.updater.running:
                 await self.app.updater.stop()
