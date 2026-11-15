@@ -155,7 +155,7 @@ def cmd_telegram_check(a):
     from .config import load_settings
     s = load_settings(a.env)
     if not s.telegram_token:
-        sys.exit("EO_TELEGRAM_TOKEN is not set (see docs/TELEGRAM.md)")
+        sys.exit("EO_TELEGRAM_TOKEN (or EO_TELEGRAM_BOT_TOKEN) is not set (see docs/TELEGRAM.md)")
 
     async def go():
         async with Bot(s.telegram_token, base_url=s.telegram_api_url or "https://api.telegram.org/bot") as b:

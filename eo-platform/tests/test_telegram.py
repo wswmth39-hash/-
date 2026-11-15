@@ -413,3 +413,16 @@ def test_live_market_is_never_shown_as_loading(settings):
     _live(core)
     svc = TelegramService(core)
     assert svc.markets(query="BTCUSD")[0]["state"] == "LIVE"
+
+
+def test_token_env_alias_is_accepted(tmp_path, monkeypatch):
+    """EO_TELEGRAM_BOT_TOKEN works like EO_TELEGRAM_TOKEN; the canonical name wins if both are set."""
+    from eoplatform.config import load_settings
+    monkeypatch.setenv("EO_HOME", str(tmp_path))
+    monkeypatch.delenv("EO_TELEGRAM_TOKEN", raising=False)
+    monkeypatch.setenv("EO_TELEGRAM_BOT_TOKEN", "111:alias-not-real")
+    empty = tmp_path / "empty.env"
+    empty.write_text("")
+    assert load_settings(str(empty)).telegram_token == "111:alias-not-real"
+    monkeypatch.setenv("EO_TELEGRAM_TOKEN", "222:canonical-not-real")
+    assert load_settings(str(empty)).telegram_token == "222:canonical-not-real"

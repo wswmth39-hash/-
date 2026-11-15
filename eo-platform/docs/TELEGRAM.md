@@ -45,7 +45,7 @@
 ## 3. الإعدادات (ملف `.env` داخل مجلد `eo-platform`)
 
 ```ini
-EO_TELEGRAM_TOKEN=123456789:AAH-ضع-الرمز-هنا
+EO_TELEGRAM_TOKEN=123456789:AAH-ضع-الرمز-هنا   # أو EO_TELEGRAM_BOT_TOKEN (الاسمان مقبولان)
 EO_TELEGRAM_ALLOWED_USERS=123456789          # عدة مستخدمين: 111,222,333
 ```
 

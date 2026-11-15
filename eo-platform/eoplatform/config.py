@@ -126,7 +126,9 @@ def load_settings(env_file: str | None = None) -> Settings:
         news_url=os.environ.get("EO_NEWS_URL", "https://nfs.faireconomy.media/ff_calendar_thisweek.json"),
         news_window_min=_i("EO_NEWS_WINDOW_MIN", 30),
         alert_webhook=os.environ.get("EO_ALERT_WEBHOOK", ""),
-        telegram_token=os.environ.get("EO_TELEGRAM_TOKEN", "").strip(),
+        # EO_TELEGRAM_BOT_TOKEN is accepted as an alias (same meaning); EO_TELEGRAM_TOKEN wins if both are set
+        telegram_token=(os.environ.get("EO_TELEGRAM_TOKEN", "").strip()
+                        or os.environ.get("EO_TELEGRAM_BOT_TOKEN", "").strip()),
         telegram_allowed=tuple(int(x) for x in os.environ.get("EO_TELEGRAM_ALLOWED_USERS", "").replace(" ", "").split(",")
                                if x.lstrip("-").isdigit()),
         telegram_api_url=os.environ.get("EO_TELEGRAM_API_URL", ""),
