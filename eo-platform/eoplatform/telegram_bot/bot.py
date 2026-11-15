@@ -255,6 +255,12 @@ class EOTelegramBot:
         data = q.data or ""
         if data.startswith("sig:"):
             return await self._signal(update, data[4:])
+        if data.startswith("sigx:"):                       # screenshot market without a real feed
+            await q.answer()
+            idx = int(data[5:]) if data[5:].isdigit() else 0
+            return await self._send(update, T.sig_nodata_text(idx), T.sig_menu_keyboard())
+        if data == "noop":
+            return await q.answer()
         if data == "sigmenu":
             await q.answer()
             return await self._send(update, T.SIG_WELCOME, T.sig_markets_keyboard())

@@ -343,13 +343,28 @@ SIG_MARKETS = [          # only markets with GENUINE live data (Binance referenc
     ("BTCUSD", "Bitcoin", "₿"), ("ETHUSD", "Ethereum", "💠"),
     ("LTCUSD", "Litecoin", "🔷"), ("XRPUSD", "Ripple", "💧"),
 ]
+# The owner's screenshot markets, shown for the exact look. ExpertOption-only / OTC assets have
+# NO legitimate external price source, so pressing them says so honestly — never a fabricated signal.
+SIG_DISPLAY = [
+    ("Football Index", "⚽"), ("Smarty", "🧠"), ("USD/NGN (OTC)", "🇳🇬"), ("EUR/USD (OTC)", "🇪🇺"),
+    ("GBP/USD (OTC)", "🇬🇧"), ("USD/JPY (OTC)", "🇯🇵"), ("Gold", "🪙"), ("Silver", "⚪"),
+]
 SIG_DUR_AR = {30: "30 ثانية", 60: "دقيقة واحدة", 120: "دقيقتان", 300: "5 دقائق"}
 
 
 def sig_markets_keyboard() -> InlineKeyboardMarkup:
-    rows = [[btn(f"{name} {emoji}", f"sig:{mid}")] for mid, name, emoji in SIG_MARKETS]
+    rows = [[btn(f"{name} {emoji}", f"sigx:{i}")] for i, (name, emoji) in enumerate(SIG_DISPLAY)]
+    rows.append([btn("— أسواق ببيانات حقيقية —", "noop")])
+    rows += [[btn(f"{name} {emoji}", f"sig:{mid}")] for mid, name, emoji in SIG_MARKETS]
     rows.append([btn("🩺 حالة النظام", "status"), btn("❓ المساعدة", "help")])
     return InlineKeyboardMarkup(rows)
+
+
+def sig_nodata_text(idx: int) -> str:
+    name, emoji = SIG_DISPLAY[idx]
+    return (f"📊 السوق : {esc(name)} {emoji}\n\n"
+            "⏳ لا تتوفر بيانات أسعار حقيقية لهذا السوق.\n"
+            "لا تُعرض إشارة دون سعر فعلي.")
 
 
 def sig_result_text(r: dict) -> str:
@@ -368,6 +383,10 @@ def sig_result_text(r: dict) -> str:
         dir_ar,
         "<i>⚠️ تحليل فقط — غير مضمونة.</i>",
     ])
+
+
+def sig_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[btn("🔁 رجوع للأسواق", "sigmenu")]])
 
 
 def sig_after_keyboard(market_id: str) -> InlineKeyboardMarkup:

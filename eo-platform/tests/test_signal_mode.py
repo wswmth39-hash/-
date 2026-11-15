@@ -95,3 +95,40 @@ def test_image_mode_end_to_end_on_telegram(settings):
         loop.call_soon_threadsafe(loop.stop)
         th.join(5)
         fake.close()
+
+
+def test_screenshot_markets_shown_but_never_fabricate_a_signal(settings):
+    settings.signal_style = "image"
+    settings.enable_binance = True
+    from eoplatform.service.core import Core
+    core = Core(settings)
+    core.started -= 1000
+    now = time.time()
+    for mid in CRYPTO:
+        core.hub.ingest_bars(mid, "binance", random_walk_bars(5000, end=int(now), seed=hash(mid) % 97, p0=100.0), now=now)
+    fake = FakeTelegram(TOKEN)
+    loop = asyncio.new_event_loop()
+    th = threading.Thread(target=loop.run_forever, daemon=True)
+    th.start()
+    bot = EOTelegramBot(core, TOKEN, {OWNER}, base_url=fake.base_url)
+    asyncio.run_coroutine_threadsafe(bot.start(), loop).result(15)
+    try:
+        fake.command(OWNER, "/start")
+        m = fake.wait_for(lambda m: "اختر السوق المُراد تحليله" in m["text"])
+        labels = [t for t, _ in fake.buttons(m)]
+        for name, emoji in T.SIG_DISPLAY:                                  # exact screenshot markets + emojis
+            assert f"{name} {emoji}" in labels, name
+        assert "Football Index ⚽" in labels and "Smarty 🧠" in labels and "Gold 🪙" in labels
+        # pressing a screenshot market → honest "no data", never a buy/sell
+        fake.press(OWNER, "sigx:1")                                        # Smarty
+        r = fake.wait_for(lambda m: "Smarty" in m["text"])
+        assert "لا تتوفر بيانات" in r["text"] and "بيع" not in r["text"] and "شراء" not in r["text"]
+        # the real crypto markets still give a direction
+        fake.press(OWNER, "sig:ETHUSD")
+        r2 = fake.wait_for(lambda m: "Ethereum" in m["text"])
+        assert ("بيع / Sell" in r2["text"]) or ("شراء / Buy" in r2["text"])
+    finally:
+        asyncio.run_coroutine_threadsafe(bot.stop(), loop).result(15)
+        loop.call_soon_threadsafe(loop.stop)
+        th.join(5)
+        fake.close()
