@@ -113,7 +113,9 @@ def run_cycle(core, use_llm: bool = True) -> dict:
         _status(db, stage=f"5-8/9 تدريب واختبار المرشحين ({done}/{total}): {what}", progress=round(done / total, 3))
 
     _status(db, stage="5-8/9 تدريب واختبار المرشحين")
-    results = trainer.retrain_all(db, core.registry, s, specs=tuple(c["spec"] for c in chosen), progress=progress)
+    results = trainer.retrain_all(db, core.registry, s, specs=tuple(c["spec"] for c in chosen), progress=progress,
+                                  proposers={c["spec"]: ("qwen" if "Qwen" in c["why"] else "rule") for c in chosen},
+                                  rationales={c["spec"]: c["why"] for c in chosen})
     promoted = [r for r in results if r.get("status") == "champion"]
 
     report = {"started": started, "finished": time.time(), "inventory": inventory, "evaluation": {

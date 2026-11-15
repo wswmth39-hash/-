@@ -73,6 +73,9 @@ class Settings:
     # --- decision policy
     payout: float = 0.80          # payout ratio used for the break-even accuracy
     require_validated_model: bool = True
+    exec_delay_s: int = 1           # seconds between candle close and entry, used in training labels
+    cost_buffer: float = 0.01       # extra accuracy required above break-even (quote gap, slippage)
+    ledger_days: int = 7            # multiple-testing family = every hypothesis tested in this window
     min_validation_samples: int = 200
     # --- local LLM (Ollama, via TradingAgents' own client)
     llm_enabled: bool = True
@@ -126,6 +129,9 @@ def load_settings(env_file: str | None = None) -> Settings:
         stale_max_age=_f("EO_STALE_MAX_AGE", 60.0),
         payout=_f("EO_PAYOUT", 0.80),
         require_validated_model=_b("EO_REQUIRE_VALIDATED_MODEL", True),
+        exec_delay_s=_i("EO_EXEC_DELAY_S", 1),
+        cost_buffer=_f("EO_COST_BUFFER", 0.01),
+        ledger_days=_i("EO_LEDGER_DAYS", 7),
         min_validation_samples=_i("EO_MIN_VALIDATION_SAMPLES", 200),
         llm_enabled=_b("EO_LLM_ENABLED", True),
         llm_provider=os.environ.get("EO_LLM_PROVIDER", "ollama"),

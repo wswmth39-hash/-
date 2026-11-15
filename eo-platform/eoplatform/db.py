@@ -71,6 +71,14 @@ CREATE TABLE IF NOT EXISTS bridge_tokens (
 );
 
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+-- every hypothesis ever tested (multiple-testing family, audit trail, dashboard)
+CREATE TABLE IF NOT EXISTS hypothesis_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, created_at REAL NOT NULL, market TEXT NOT NULL, duration INTEGER NOT NULL,
+  source TEXT, spec TEXT NOT NULL, algo TEXT NOT NULL, proposer TEXT NOT NULL DEFAULT 'rule', rationale TEXT,
+  data_start REAL, data_end REAL, family INTEGER, z REAL, trades INTEGER, wins INTEGER, accuracy REAL, lb REAL,
+  required REAL, validated INTEGER NOT NULL DEFAULT 0, outcome TEXT, reasons TEXT, model_id INTEGER
+);
 """
 
 

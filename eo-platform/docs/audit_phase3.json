@@ -1,0 +1,897 @@
+{
+ "cutoff": 1794682068.496918,
+ "markets": {
+  "BTCUSD": {
+   "microstructure": {
+    "bars": 119944,
+    "hours": 33.3,
+    "zero_1s_returns": 0.3539,
+    "lag1_autocorr_nonzero_1s": 0.0713
+   },
+   "durations": {
+    "30": {
+     "in_sample_view": {
+      "threshold": 0.12,
+      "naive": {
+       "n": 958,
+       "acc": 0.5543,
+       "wilson_lb": 0.5226
+      },
+      "block_bootstrap_lb": 0.5084,
+      "non_overlapping": {
+       "n": 333,
+       "acc": 0.5435,
+       "wilson_lb": 0.4899
+      }
+     },
+     "unseen_forward": {
+      "delay_0s": {
+       "all": {
+        "n": 5763,
+        "acc": 0.5062,
+        "wilson_lb": 0.4933
+       },
+       "thresholded": {
+        "n": 1247,
+        "acc": 0.506,
+        "wilson_lb": 0.4783
+       }
+      },
+      "delay_1s": {
+       "all": {
+        "n": 5760,
+        "acc": 0.505,
+        "wilson_lb": 0.4921
+       },
+       "thresholded": {
+        "n": 1246,
+        "acc": 0.5024,
+        "wilson_lb": 0.4747
+       }
+      },
+      "delay_2s": {
+       "all": {
+        "n": 5759,
+        "acc": 0.5043,
+        "wilson_lb": 0.4913
+       },
+       "thresholded": {
+        "n": 1248,
+        "acc": 0.4992,
+        "wilson_lb": 0.4715
+       }
+      },
+      "delay_3s": {
+       "all": {
+        "n": 5763,
+        "acc": 0.5041,
+        "wilson_lb": 0.4912
+       },
+       "thresholded": {
+        "n": 1248,
+        "acc": 0.508,
+        "wilson_lb": 0.4803
+       }
+      }
+     },
+     "bounce_rule_unseen": {
+      "n": 4523,
+      "acc": 0.4853,
+      "wilson_lb": 0.4708
+     }
+    },
+    "60": {
+     "in_sample_view": {
+      "threshold": 0.02,
+      "naive": {
+       "n": 2256,
+       "acc": 0.5208,
+       "wilson_lb": 0.5002
+      },
+      "block_bootstrap_lb": 0.4894,
+      "non_overlapping": {
+       "n": 428,
+       "acc": 0.521,
+       "wilson_lb": 0.4737
+      }
+     },
+     "unseen_forward": {
+      "delay_0s": {
+       "all": {
+        "n": 2875,
+        "acc": 0.5012,
+        "wilson_lb": 0.483
+       },
+       "thresholded": {
+        "n": 2502,
+        "acc": 0.5036,
+        "wilson_lb": 0.484
+       }
+      },
+      "delay_1s": {
+       "all": {
+        "n": 2872,
+        "acc": 0.5003,
+        "wilson_lb": 0.4821
+       },
+       "thresholded": {
+        "n": 2501,
+        "acc": 0.5038,
+        "wilson_lb": 0.4842
+       }
+      },
+      "delay_2s": {
+       "all": {
+        "n": 2877,
+        "acc": 0.5036,
+        "wilson_lb": 0.4854
+       },
+       "thresholded": {
+        "n": 2504,
+        "acc": 0.5064,
+        "wilson_lb": 0.4868
+       }
+      },
+      "delay_3s": {
+       "all": {
+        "n": 2874,
+        "acc": 0.508,
+        "wilson_lb": 0.4897
+       },
+       "thresholded": {
+        "n": 2501,
+        "acc": 0.5094,
+        "wilson_lb": 0.4898
+       }
+      }
+     },
+     "bounce_rule_unseen": {
+      "n": 2261,
+      "acc": 0.4962,
+      "wilson_lb": 0.4757
+     }
+    },
+    "120": {
+     "in_sample_view": {
+      "threshold": 0.02,
+      "naive": {
+       "n": 1144,
+       "acc": 0.5288,
+       "wilson_lb": 0.4999
+      },
+      "block_bootstrap_lb": 0.4878,
+      "non_overlapping": {
+       "n": 210,
+       "acc": 0.5333,
+       "wilson_lb": 0.4659
+      }
+     },
+     "unseen_forward": {
+      "delay_0s": {
+       "all": {
+        "n": 1434,
+        "acc": 0.4909,
+        "wilson_lb": 0.4651
+       },
+       "thresholded": {
+        "n": 1282,
+        "acc": 0.4906,
+        "wilson_lb": 0.4633
+       }
+      },
+      "delay_1s": {
+       "all": {
+        "n": 1433,
+        "acc": 0.4983,
+        "wilson_lb": 0.4724
+       },
+       "thresholded": {
+        "n": 1281,
+        "acc": 0.502,
+        "wilson_lb": 0.4746
+       }
+      },
+      "delay_2s": {
+       "all": {
+        "n": 1433,
+        "acc": 0.4892,
+        "wilson_lb": 0.4634
+       },
+       "thresholded": {
+        "n": 1281,
+        "acc": 0.4902,
+        "wilson_lb": 0.4629
+       }
+      },
+      "delay_3s": {
+       "all": {
+        "n": 1432,
+        "acc": 0.4839,
+        "wilson_lb": 0.4581
+       },
+       "thresholded": {
+        "n": 1280,
+        "acc": 0.4859,
+        "wilson_lb": 0.4586
+       }
+      }
+     },
+     "bounce_rule_unseen": {
+      "n": 1125,
+      "acc": 0.496,
+      "wilson_lb": 0.4668
+     }
+    }
+   }
+  },
+  "ETHUSD": {
+   "microstructure": {
+    "bars": 119944,
+    "hours": 33.3,
+    "zero_1s_returns": 0.3651,
+    "lag1_autocorr_nonzero_1s": 0.062
+   },
+   "durations": {
+    "30": {
+     "in_sample_view": {
+      "threshold": 0.18,
+      "naive": {
+       "n": 268,
+       "acc": 0.6754,
+       "wilson_lb": 0.6172
+      },
+      "block_bootstrap_lb": 0.5933,
+      "non_overlapping": {
+       "n": 107,
+       "acc": 0.6262,
+       "wilson_lb": 0.5316
+      }
+     },
+     "unseen_forward": {
+      "delay_0s": {
+       "all": {
+        "n": 5760,
+        "acc": 0.5161,
+        "wilson_lb": 0.5032
+       },
+       "thresholded": {
+        "n": 625,
+        "acc": 0.5344,
+        "wilson_lb": 0.4952
+       }
+      },
+      "delay_1s": {
+       "all": {
+        "n": 5760,
+        "acc": 0.5122,
+        "wilson_lb": 0.4992
+       },
+       "thresholded": {
+        "n": 624,
+        "acc": 0.5401,
+        "wilson_lb": 0.5008
+       }
+      },
+      "delay_2s": {
+       "all": {
+        "n": 5753,
+        "acc": 0.5109,
+        "wilson_lb": 0.4979
+       },
+       "thresholded": {
+        "n": 625,
+        "acc": 0.5488,
+        "wilson_lb": 0.5096
+       }
+      },
+      "delay_3s": {
+       "all": {
+        "n": 5748,
+        "acc": 0.5132,
+        "wilson_lb": 0.5003
+       },
+       "thresholded": {
+        "n": 624,
+        "acc": 0.5449,
+        "wilson_lb": 0.5056
+       }
+      }
+     },
+     "bounce_rule_unseen": {
+      "n": 4821,
+      "acc": 0.4947,
+      "wilson_lb": 0.4806
+     }
+    },
+    "60": {
+     "in_sample_view": {
+      "threshold": 0.18,
+      "naive": {
+       "n": 438,
+       "acc": 0.5845,
+       "wilson_lb": 0.5378
+      },
+      "block_bootstrap_lb": 0.5274,
+      "non_overlapping": {
+       "n": 142,
+       "acc": 0.5915,
+       "wilson_lb": 0.5093
+      }
+     },
+     "unseen_forward": {
+      "delay_0s": {
+       "all": {
+        "n": 2873,
+        "acc": 0.5019,
+        "wilson_lb": 0.4836
+       },
+       "thresholded": {
+        "n": 610,
+        "acc": 0.4984,
+        "wilson_lb": 0.4588
+       }
+      },
+      "delay_1s": {
+       "all": {
+        "n": 2874,
+        "acc": 0.5063,
+        "wilson_lb": 0.488
+       },
+       "thresholded": {
+        "n": 609,
+        "acc": 0.4926,
+        "wilson_lb": 0.4531
+       }
+      },
+      "delay_2s": {
+       "all": {
+        "n": 2870,
+        "acc": 0.5084,
+        "wilson_lb": 0.4901
+       },
+       "thresholded": {
+        "n": 609,
+        "acc": 0.5025,
+        "wilson_lb": 0.4629
+       }
+      },
+      "delay_3s": {
+       "all": {
+        "n": 2867,
+        "acc": 0.5134,
+        "wilson_lb": 0.4951
+       },
+       "thresholded": {
+        "n": 609,
+        "acc": 0.5205,
+        "wilson_lb": 0.4808
+       }
+      }
+     },
+     "bounce_rule_unseen": {
+      "n": 2402,
+      "acc": 0.5017,
+      "wilson_lb": 0.4817
+     }
+    },
+    "120": {
+     "in_sample_view": {
+      "threshold": 0.08,
+      "naive": {
+       "n": 775,
+       "acc": 0.5639,
+       "wilson_lb": 0.5287
+      },
+      "block_bootstrap_lb": 0.5123,
+      "non_overlapping": {
+       "n": 182,
+       "acc": 0.5549,
+       "wilson_lb": 0.4823
+      }
+     },
+     "unseen_forward": {
+      "delay_0s": {
+       "all": {
+        "n": 1432,
+        "acc": 0.4965,
+        "wilson_lb": 0.4707
+       },
+       "thresholded": {
+        "n": 980,
+        "acc": 0.4755,
+        "wilson_lb": 0.4444
+       }
+      },
+      "delay_1s": {
+       "all": {
+        "n": 1431,
+        "acc": 0.4941,
+        "wilson_lb": 0.4682
+       },
+       "thresholded": {
+        "n": 980,
+        "acc": 0.4684,
+        "wilson_lb": 0.4373
+       }
+      },
+      "delay_2s": {
+       "all": {
+        "n": 1432,
+        "acc": 0.4895,
+        "wilson_lb": 0.4637
+       },
+       "thresholded": {
+        "n": 979,
+        "acc": 0.4688,
+        "wilson_lb": 0.4378
+       }
+      },
+      "delay_3s": {
+       "all": {
+        "n": 1432,
+        "acc": 0.4867,
+        "wilson_lb": 0.4609
+       },
+       "thresholded": {
+        "n": 979,
+        "acc": 0.4658,
+        "wilson_lb": 0.4347
+       }
+      }
+     },
+     "bounce_rule_unseen": {
+      "n": 1201,
+      "acc": 0.4913,
+      "wilson_lb": 0.4631
+     }
+    }
+   }
+  },
+  "LTCUSD": {
+   "microstructure": {
+    "bars": 119944,
+    "hours": 33.3,
+    "zero_1s_returns": 0.7163,
+    "lag1_autocorr_nonzero_1s": -0.0026
+   },
+   "durations": {
+    "30": {
+     "in_sample_view": {
+      "threshold": 0.18,
+      "naive": {
+       "n": 418,
+       "acc": 0.6053,
+       "wilson_lb": 0.5576
+      },
+      "block_bootstrap_lb": 0.5382,
+      "non_overlapping": {
+       "n": 152,
+       "acc": 0.6118,
+       "wilson_lb": 0.5325
+      }
+     },
+     "unseen_forward": {
+      "delay_0s": {
+       "all": {
+        "n": 5354,
+        "acc": 0.5088,
+        "wilson_lb": 0.4954
+       },
+       "thresholded": {
+        "n": 771,
+        "acc": 0.5227,
+        "wilson_lb": 0.4874
+       }
+      },
+      "delay_1s": {
+       "all": {
+        "n": 5315,
+        "acc": 0.5056,
+        "wilson_lb": 0.4921
+       },
+       "thresholded": {
+        "n": 752,
+        "acc": 0.5293,
+        "wilson_lb": 0.4935
+       }
+      },
+      "delay_2s": {
+       "all": {
+        "n": 5333,
+        "acc": 0.5027,
+        "wilson_lb": 0.4893
+       },
+       "thresholded": {
+        "n": 760,
+        "acc": 0.5105,
+        "wilson_lb": 0.475
+       }
+      },
+      "delay_3s": {
+       "all": {
+        "n": 5333,
+        "acc": 0.5003,
+        "wilson_lb": 0.4869
+       },
+       "thresholded": {
+        "n": 750,
+        "acc": 0.4973,
+        "wilson_lb": 0.4617
+       }
+      }
+     },
+     "bounce_rule_unseen": {
+      "n": 2342,
+      "acc": 0.4991,
+      "wilson_lb": 0.4789
+     }
+    },
+    "60": {
+     "in_sample_view": {
+      "threshold": 0.12,
+      "naive": {
+       "n": 755,
+       "acc": 0.5629,
+       "wilson_lb": 0.5273
+      },
+      "block_bootstrap_lb": 0.5125,
+      "non_overlapping": {
+       "n": 252,
+       "acc": 0.5635,
+       "wilson_lb": 0.5018
+      }
+     },
+     "unseen_forward": {
+      "delay_0s": {
+       "all": {
+        "n": 2710,
+        "acc": 0.4978,
+        "wilson_lb": 0.479
+       },
+       "thresholded": {
+        "n": 1082,
+        "acc": 0.4898,
+        "wilson_lb": 0.4601
+       }
+      },
+      "delay_1s": {
+       "all": {
+        "n": 2715,
+        "acc": 0.4947,
+        "wilson_lb": 0.4759
+       },
+       "thresholded": {
+        "n": 1081,
+        "acc": 0.4986,
+        "wilson_lb": 0.4689
+       }
+      },
+      "delay_2s": {
+       "all": {
+        "n": 2706,
+        "acc": 0.5,
+        "wilson_lb": 0.4812
+       },
+       "thresholded": {
+        "n": 1081,
+        "acc": 0.4866,
+        "wilson_lb": 0.4569
+       }
+      },
+      "delay_3s": {
+       "all": {
+        "n": 2725,
+        "acc": 0.4954,
+        "wilson_lb": 0.4767
+       },
+       "thresholded": {
+        "n": 1088,
+        "acc": 0.4917,
+        "wilson_lb": 0.4621
+       }
+      }
+     },
+     "bounce_rule_unseen": {
+      "n": 1209,
+      "acc": 0.5103,
+      "wilson_lb": 0.4822
+     }
+    },
+    "120": {
+     "in_sample_view": {
+      "threshold": 0.18,
+      "naive": {
+       "n": 226,
+       "acc": 0.5796,
+       "wilson_lb": 0.5145
+      },
+      "block_bootstrap_lb": 0.4956,
+      "non_overlapping": {
+       "n": 85,
+       "acc": 0.5059,
+       "wilson_lb": 0.4017
+      }
+     },
+     "unseen_forward": {
+      "delay_0s": {
+       "all": {
+        "n": 1392,
+        "acc": 0.5043,
+        "wilson_lb": 0.4781
+       },
+       "thresholded": {
+        "n": 340,
+        "acc": 0.5382,
+        "wilson_lb": 0.4851
+       }
+      },
+      "delay_1s": {
+       "all": {
+        "n": 1399,
+        "acc": 0.5068,
+        "wilson_lb": 0.4806
+       },
+       "thresholded": {
+        "n": 338,
+        "acc": 0.5444,
+        "wilson_lb": 0.4911
+       }
+      },
+      "delay_2s": {
+       "all": {
+        "n": 1386,
+        "acc": 0.5087,
+        "wilson_lb": 0.4824
+       },
+       "thresholded": {
+        "n": 338,
+        "acc": 0.5444,
+        "wilson_lb": 0.4911
+       }
+      },
+      "delay_3s": {
+       "all": {
+        "n": 1379,
+        "acc": 0.5127,
+        "wilson_lb": 0.4863
+       },
+       "thresholded": {
+        "n": 334,
+        "acc": 0.5389,
+        "wilson_lb": 0.4853
+       }
+      }
+     },
+     "bounce_rule_unseen": {
+      "n": 643,
+      "acc": 0.5148,
+      "wilson_lb": 0.4762
+     }
+    }
+   }
+  },
+  "XRPUSD": {
+   "microstructure": {
+    "bars": 119944,
+    "hours": 33.3,
+    "zero_1s_returns": 0.5014,
+    "lag1_autocorr_nonzero_1s": 0.0201
+   },
+   "durations": {
+    "30": {
+     "in_sample_view": {
+      "threshold": 0.08,
+      "naive": {
+       "n": 1499,
+       "acc": 0.5424,
+       "wilson_lb": 0.5171
+      },
+      "block_bootstrap_lb": 0.5063,
+      "non_overlapping": {
+       "n": 487,
+       "acc": 0.5339,
+       "wilson_lb": 0.4895
+      }
+     },
+     "unseen_forward": {
+      "delay_0s": {
+       "all": {
+        "n": 5558,
+        "acc": 0.5182,
+        "wilson_lb": 0.505
+       },
+       "thresholded": {
+        "n": 2124,
+        "acc": 0.5254,
+        "wilson_lb": 0.5042
+       }
+      },
+      "delay_1s": {
+       "all": {
+        "n": 5565,
+        "acc": 0.5191,
+        "wilson_lb": 0.506
+       },
+       "thresholded": {
+        "n": 2125,
+        "acc": 0.5233,
+        "wilson_lb": 0.502
+       }
+      },
+      "delay_2s": {
+       "all": {
+        "n": 5560,
+        "acc": 0.5142,
+        "wilson_lb": 0.5011
+       },
+       "thresholded": {
+        "n": 2135,
+        "acc": 0.5157,
+        "wilson_lb": 0.4945
+       }
+      },
+      "delay_3s": {
+       "all": {
+        "n": 5577,
+        "acc": 0.5173,
+        "wilson_lb": 0.5042
+       },
+       "thresholded": {
+        "n": 2141,
+        "acc": 0.5184,
+        "wilson_lb": 0.4973
+       }
+      }
+     },
+     "bounce_rule_unseen": {
+      "n": 3845,
+      "acc": 0.5053,
+      "wilson_lb": 0.4895
+     }
+    },
+    "60": {
+     "in_sample_view": {
+      "threshold": 0.18,
+      "naive": {
+       "n": 273,
+       "acc": 0.6117,
+       "wilson_lb": 0.5527
+      },
+      "block_bootstrap_lb": 0.5348,
+      "non_overlapping": {
+       "n": 121,
+       "acc": 0.5537,
+       "wilson_lb": 0.4648
+      }
+     },
+     "unseen_forward": {
+      "delay_0s": {
+       "all": {
+        "n": 2804,
+        "acc": 0.5278,
+        "wilson_lb": 0.5093
+       },
+       "thresholded": {
+        "n": 398,
+        "acc": 0.5678,
+        "wilson_lb": 0.5188
+       }
+      },
+      "delay_1s": {
+       "all": {
+        "n": 2790,
+        "acc": 0.5283,
+        "wilson_lb": 0.5098
+       },
+       "thresholded": {
+        "n": 396,
+        "acc": 0.5631,
+        "wilson_lb": 0.5139
+       }
+      },
+      "delay_2s": {
+       "all": {
+        "n": 2801,
+        "acc": 0.5266,
+        "wilson_lb": 0.5081
+       },
+       "thresholded": {
+        "n": 399,
+        "acc": 0.5614,
+        "wilson_lb": 0.5124
+       }
+      },
+      "delay_3s": {
+       "all": {
+        "n": 2812,
+        "acc": 0.5238,
+        "wilson_lb": 0.5053
+       },
+       "thresholded": {
+        "n": 400,
+        "acc": 0.5525,
+        "wilson_lb": 0.5035
+       }
+      }
+     },
+     "bounce_rule_unseen": {
+      "n": 1950,
+      "acc": 0.5215,
+      "wilson_lb": 0.4993
+     }
+    },
+    "120": {
+     "in_sample_view": {
+      "threshold": 0.18,
+      "naive": {
+       "n": 257,
+       "acc": 0.5603,
+       "wilson_lb": 0.4992
+      },
+      "block_bootstrap_lb": 0.4786,
+      "non_overlapping": {
+       "n": 97,
+       "acc": 0.4845,
+       "wilson_lb": 0.3876
+      }
+     },
+     "unseen_forward": {
+      "delay_0s": {
+       "all": {
+        "n": 1412,
+        "acc": 0.5078,
+        "wilson_lb": 0.4817
+       },
+       "thresholded": {
+        "n": 374,
+        "acc": 0.5294,
+        "wilson_lb": 0.4788
+       }
+      },
+      "delay_1s": {
+       "all": {
+        "n": 1407,
+        "acc": 0.5032,
+        "wilson_lb": 0.4771
+       },
+       "thresholded": {
+        "n": 370,
+        "acc": 0.527,
+        "wilson_lb": 0.4761
+       }
+      },
+      "delay_2s": {
+       "all": {
+        "n": 1414,
+        "acc": 0.5042,
+        "wilson_lb": 0.4782
+       },
+       "thresholded": {
+        "n": 376,
+        "acc": 0.5186,
+        "wilson_lb": 0.4682
+       }
+      },
+      "delay_3s": {
+       "all": {
+        "n": 1400,
+        "acc": 0.5093,
+        "wilson_lb": 0.4831
+       },
+       "thresholded": {
+        "n": 368,
+        "acc": 0.5245,
+        "wilson_lb": 0.4734
+       }
+      }
+     },
+     "bounce_rule_unseen": {
+      "n": 993,
+      "acc": 0.5126,
+      "wilson_lb": 0.4815
+     }
+    }
+   }
+  }
+ }
+}

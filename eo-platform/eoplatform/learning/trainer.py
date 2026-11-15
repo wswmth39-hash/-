@@ -43,7 +43,26 @@ SPECS = {
     "no_structure": {"features": "no_structure", "params": {}},
     "trend_momentum": {"features": "trend_momentum", "params": {}},
     "regularised": {"features": "all", "params": {"min_child_weight": 20, "reg_lambda": 8.0, "subsample": 0.7}},
+    # Phase 3: other local learners and explicit feature interactions
+    "lightgbm": {"features": "all", "params": {}, "algo": "lightgbm"},
+    "catboost": {"features": "all", "params": {}, "algo": "catboost"},
+    "logistic": {"features": "all", "params": {}, "algo": "logistic"},
+    "interactions": {"features": "all", "params": {}, "interactions": "core"},
+    "structure_mtf": {"features": "structure_mtf", "params": {"max_depth": 2}},
 }
+
+# Interaction pairs (hypotheses about conditional effects, not blind indicator stacking):
+# momentum only matters when the higher timeframe agrees; breaks of structure matter with
+# activity; trend slope matters only when the trend is strong; FVG retests vs. oscillator state.
+INTERACTIONS = {"core": [("ret6", "mtf_align"), ("ret3", "structure"), ("ema_slope", "adx"),
+                         ("ret3", "atr_ratio"), ("macd_hist", "htf_trend"), ("bos", "activity_ratio"),
+                         ("fvg_into", "rsi14"), ("sweep", "trend_up_frac")]}
+
+
+def interaction_idx(name: str | None) -> list | None:
+    if not name:
+        return None
+    return [(F.FEATURES.index(a), F.FEATURES.index(b)) for a, b in INTERACTIONS[name]]
 
 
 def feature_idx(group: str) -> list[int] | None:
@@ -53,6 +72,9 @@ def feature_idx(group: str) -> list[int] | None:
         return None
     if group == "no_structure":
         keep = [f for f in names if f not in STRUCT_FEATURES]
+    elif group == "structure_mtf":
+        keep = ["ret3", "ret6", "atr_ratio", "adx", "ema_slope", "fvg_net10", "fvg_into", "structure", "bos",
+                "choch", "htf_trend", "htf_rsi", "mtf_align", "sweep", "dist_hi20", "dist_lo20", "breakout"]
     elif group == "trend_momentum":
         keep = ["ret1", "ret3", "ret6", "ret12", "rsi14", "rsi7", "roc6", "stoch_k", "stoch_d", "streak",
                 "ema_fast_slow", "ema_slope", "macd_hist", "adx", "di_diff", "trend_up_frac", "atr_ratio",
@@ -110,155 +132,125 @@ def _thr_acc(p: np.ndarray, y: np.ndarray, thr: float) -> tuple[int, int]:
     return int(((p[sel] > 0.5).astype(int) == y[sel]).sum()), int(sel.sum())
 
 
+def ledger_family(db: DB, settings: Settings, run_size: int) -> int:
+    """Multiple-testing family = this run's hypotheses + every hypothesis tested in the last
+    ``ledger_days`` (audit: 360 tests over 25 runs had been corrected only within each run)."""
+    prior = db.one("SELECT count(*) n FROM hypothesis_ledger WHERE created_at > ?",
+                   (time.time() - settings.ledger_days * 86400,))["n"]
+    return max(1, run_size + prior)
+
+
 def train_one(db: DB, registry: Registry, settings: Settings, market: dict, duration: int,
-              source: str, bars: np.ndarray | None, family: int = 1, ds=None, spec: str = "base") -> dict:
+              source: str, bars: np.ndarray | None, family: int = 1, ds=None, spec: str = "base",
+              proposer: str = "rule", rationale: str = "") -> dict:
     from ..engine.structure import regime
-    ds = ds if ds is not None else build_dataset(bars, duration)
-    z = z_for(family)
+    from . import validation as V
+    ds = ds if ds is not None else build_dataset(bars, duration, delay_s=settings.exec_delay_s)
+    z = V.z_family(family)
+    required = settings.breakeven + settings.cost_buffer
     res = {"market": market["id"], "duration": duration, "source": source, "samples": int(len(ds.y)), "spec": spec}
     if len(ds.y) < MIN_SAMPLES:
         res["status"] = f"insufficient data ({len(ds.y)} < {MIN_SAMPLES} samples)"
         return res
     sp = SPECS[spec]
+    algo = sp.get("algo", "xgboost")
     fidx = feature_idx(sp["features"])
     P = ANALYSIS_PERIOD[duration]
     purge = duration // P + F.MIN_CANDLES
-    tr, te = _split(len(ds.y), purge)
-    Xtr, ytr, Xte, yte = ds.X[tr], ds.y[tr], ds.X[te], ds.y[te]
 
-    model = DirectionModel.train(Xtr, ytr, params=sp["params"], feature_idx=fidx)
-    p = model.predict(Xte)
-    table = calibration_table(p, yte)
-    thr = choose_threshold(table, settings.breakeven, settings.min_validation_samples, z)
-    gate_note = None if thr is not None else "no threshold reached significance and break-even on held-out data"
+    inter = interaction_idx(sp.get("interactions"))
+    wf = V.walk_forward(ds.X, ds.y, ds.ts, duration, purge, required, algo=algo, params=sp["params"],
+                        feature_idx=fidx, interactions=inter)
+    g = V.gates(wf, required, z, settings.min_validation_samples)
+    model, thr = wf.model, (wf.threshold if g["validated"] else None)
+    table = V.pooled_calibration(wf)
 
-    # calibration quality of the raw probabilities (reported; confidence shown to users stays empirical)
-    pc = np.clip(p, 1e-6, 1 - 1e-6)
-    calib = {"brier": float(np.mean((p - yte) ** 2)), "brier_baseline": float(np.mean((ytr.mean() - yte) ** 2)),
-             "logloss": float(-np.mean(yte * np.log(pc) + (1 - yte) * np.log(1 - pc))),
-             "reliability": _reliability(p, yte)}
+    calib = {}
+    if wf.all_p is not None and len(wf.all_p):
+        pc = np.clip(wf.all_p, 1e-6, 1 - 1e-6)
+        yy = wf.all_y
+        calib = {"brier": float(np.mean((wf.all_p - yy) ** 2)), "brier_baseline": float(np.mean((yy.mean() - yy) ** 2)),
+                 "logloss": float(-np.mean(yy * np.log(pc) + (1 - yy) * np.log(1 - pc))),
+                 "reliability": _reliability(wf.all_p, yy), "n_non_overlapping": int(len(yy))}
 
-    # walk-forward stability (3 expanding folds, purged); also measured AT the chosen threshold
-    wf = []
-    n = len(ds.y)
-    for k in range(3):
-        a, b = int(n * (0.4 + 0.2 * k)), int(n * (0.6 + 0.2 * k))
-        if b - a - purge < 50:
-            continue
-        m_k = DirectionModel.train(ds.X[:a], ds.y[:a], params=sp["params"], feature_idx=fidx)
-        pk = m_k.predict(ds.X[a + purge:b])
-        fold = _acc((pk > 0.5).astype(int), ds.y[a + purge:b])
-        if thr is not None:
-            kk, nn_ = _thr_acc(pk, ds.y[a + purge:b], thr)
-            fold.update(thr_n=nn_, thr_acc=kk / nn_ if nn_ else None)
-        wf.append(fold)
-    fold_ok = None
-    if thr is not None:
-        good = sum(1 for f in wf if f.get("thr_n", 0) >= 30 and f["thr_acc"] is not None
-                   and f["thr_acc"] >= settings.breakeven)
-        fold_ok = good >= 2
-        if not fold_ok:
-            gate_note = f"walk-forward inconsistent: only {good} of {len(wf)} folds at/above break-even"
-            thr = None
-
-    # alternative strategies on the same test window (reported for comparison)
-    strategies = {}
-    for name, pred in strategy_predictions(Xte).items():
-        m = pred >= 0
-        strategies[name] = _acc(pred[m], yte[m]) | {"coverage": float(m.mean())}
-    strategies["majority_class_baseline"] = _acc(np.full(len(yte), int(ytr.mean() > 0.5)), yte)
-    strategies["xgboost_all"] = _acc((p > 0.5).astype(int), yte)
-
-    # baseline gate on exactly the trades the model would take
-    baseline_check = None
-    ev = None
-    regime_stats = {}
-    if thr is not None:
-        sel = np.abs(p - 0.5) >= thr
-        k, n_sel = int(((p[sel] > 0.5).astype(int) == yte[sel]).sum()), int(sel.sum())
-        model_lb = wilson_lb(k, n_sel, z)
-        base = {"majority_class": float((np.full(n_sel, int(ytr.mean() > 0.5)) == yte[sel]).mean()),
-                "chance": 0.5}
-        best_name = max(base, key=base.get)
-        baseline_check = {"model_gate_lb": model_lb, "baselines": base, "best_baseline": best_name,
-                          "passed": model_lb > base[best_name]}
-        acc_sel = k / n_sel
-        ev = {"acc": acc_sel, "n": n_sel, "ev_per_unit": acc_sel * settings.payout - (1 - acc_sel),
-              "ev_per_unit_lb": model_lb * settings.payout - (1 - model_lb)}
-        # regime breakdown of the trades it would take (blocks regimes that lost on held-out data)
-        regs = np.array([regime(dict(zip(F.FEATURES, row))) for row in Xte[sel]])
-        hit = (p[sel] > 0.5).astype(int) == yte[sel]
+    # alternative strategies on exactly the same independent out-of-sample trades
+    strategies, regime_stats, ev = {}, {}, None
+    if wf.trades_n:
+        for name, pred in strategy_predictions(wf.trade_X).items():
+            m = pred >= 0
+            strategies[name] = _acc(pred[m], wf.trade_y[m]) | {"coverage": float(m.mean())}
+        strategies["model"] = _acc((wf.trade_p > 0.5).astype(int), wf.trade_y)
+        for name, s_ in strategies.items():
+            db.execute("INSERT INTO strategy_results(created_at,market,duration,strategy,n,wins,accuracy,wilson_lb,details)"
+                       " VALUES(?,?,?,?,?,?,?,?,?)", (time.time(), market["id"], duration, f"{spec}:{name}", s_["n"],
+                                                     s_["wins"], s_["acc"], s_["wilson_lb"],
+                                                     json.dumps({"source": source, "spec": spec, **s_})))
+        lb = g["lb"]
+        ev = {"acc": wf.acc, "n": wf.trades_n, "ev_per_unit": wf.acc * settings.payout - (1 - wf.acc),
+              "ev_per_unit_lb": lb * settings.payout - (1 - lb), "required_accuracy": required}
+        regs = np.array([regime(dict(zip(F.FEATURES, row))) for row in wf.trade_X])
+        hit = (wf.trade_p > 0.5).astype(int) == wf.trade_y
         for rg in np.unique(regs):
             m_ = regs == rg
-            nr = int(m_.sum())
-            ar = float(hit[m_].mean())
-            regime_stats[str(rg)] = {"n": nr, "acc": ar, "blocked": nr >= REGIME_MIN_N and ar < settings.breakeven}
-        if not baseline_check["passed"]:
-            gate_note = "does not beat the no-model baselines on its own trades"
-            thr = None
-    for name, s_ in strategies.items():
-        db.execute("INSERT INTO strategy_results(created_at,market,duration,strategy,n,wins,accuracy,wilson_lb,details)"
-                   " VALUES(?,?,?,?,?,?,?,?,?)", (time.time(), market["id"], duration, name, s_["n"], s_["wins"],
-                                                 s_["acc"], s_["wilson_lb"], json.dumps({"source": source, **s_})))
+            nr, ar = int(m_.sum()), float(hit[m_].mean())
+            regime_stats[str(rg)] = {"n": nr, "acc": ar, "lb95": wilson_lb(int(hit[m_].sum()), nr),
+                                     "blocked": nr >= REGIME_MIN_N and ar < settings.breakeven}
 
-    validated = thr is not None
+    validated = bool(g["validated"])
+    gate_note = None if validated else "; ".join(g["reasons"])
     metrics = {
-        "source": source, "spec": spec, "params": sp["params"], "feature_group": sp["features"],
-        "feature_idx": fidx, "train_samples": int(len(ytr)), "test_samples": int(len(yte)),
-        "train_range": [float(ds.ts[tr][0]), float(ds.ts[tr][-1])],
-        "test_range": [float(ds.ts[te][0]), float(ds.ts[te][-1])],
-        "test_accuracy": strategies["xgboost_all"]["acc"], "calibration": table, "threshold": thr,
-        "breakeven": settings.breakeven, "walk_forward": wf, "fold_consistent": fold_ok,
-        "strategies": strategies, "baseline_check": baseline_check, "z_gate": z, "family_size": family,
-        "calibration_quality": calib, "expected_value": ev, "regime_stats": regime_stats,
-        "validated": validated, "gate_note": gate_note, "features": F.FEATURES, "analysis_period": P,
+        "protocol": "v3-walkforward-nonoverlap", "source": source, "spec": spec, "algo": algo, "params": sp["params"],
+        "feature_group": sp["features"], "feature_idx": fidx, "interactions": inter,
+        "exec_delay_s": settings.exec_delay_s,
+        "train_samples": int(wf.folds[-1]["fit_samples"]) if wf.folds else 0,
+        "test_samples": int(wf.trades_n), "data_range": [float(ds.ts[0]), float(ds.ts[-1])],
+        "test_range": [wf.folds[0]["block"][0], wf.folds[-1]["block"][1]] if wf.folds else None,
+        "test_accuracy": wf.acc, "calibration": table, "threshold": thr, "breakeven": settings.breakeven,
+        "required_accuracy": required, "walk_forward": wf.folds, "fold_consistent": g["consistent"],
+        "strategies": strategies,
+        "baseline_check": {"passed": g["beats_baseline"], "best_baseline": g["best_baseline"], "model_gate_lb": g["lb"]},
+        "z_gate": z, "family_size": family, "gates": g, "calibration_quality": calib, "expected_value": ev,
+        "regime_stats": regime_stats, "validated": validated, "gate_note": gate_note,
+        "features": F.FEATURES, "analysis_period": P,
     }
 
     champ = registry.champion(market["id"], duration)
     if champ is not None and champ[0]["metrics"].get("features") != F.FEATURES:
-        # Found in production: a champion trained on the previous 37-feature layout crashed
-        # re-validation (37 vs 45 columns). It cannot be scored on current features: retire it.
         registry.demote(champ[0]["id"], "feature set changed since training — retired, retraining required")
         db.event("warning", "model", f"سحب النموذج #{champ[0]['id']}: قائمة المؤشرات تغيّرت منذ تدريبه")
         champ = None
-    # The incumbent must keep passing the CURRENT gate on the NEWEST held-out window.
-    if champ is not None and champ[0]["metrics"].get("source") == source:
-        cthr = champ[0]["metrics"].get("threshold")
-        ctab = calibration_table(champ[1].predict(Xte), yte)
-        crow = next((r for r in ctab if cthr is not None and r["edge"] == cthr), None)
-        ok = bool(crow and crow["n"] >= settings.min_validation_samples
-                  and wilson_lb(crow["wins"], crow["n"], z) > settings.breakeven)
-        if not ok:
-            why = (f"failed re-validation on newest window (family-wise z={z:.2f}): "
-                   f"acc {crow['acc'] if crow else None} on {crow['n'] if crow else 0}")
-            registry.demote(champ[0]["id"], why)
-            db.event("warning", "model", f"سحب النموذج #{champ[0]['id']} {market['id']} {duration}ث: لم يجتز إعادة التحقق")
-            champ = None
+    if champ is not None and champ[0]["metrics"].get("protocol") != "v3-walkforward-nonoverlap":
+        # validated under the old protocol (threshold chosen on its test window, overlapping n)
+        registry.demote(champ[0]["id"], "validated under the pre-v3 protocol (selection bias / overlap) — retired")
+        db.event("warning", "model", f"سحب النموذج #{champ[0]['id']}: اعتُمد ببروتوكول تحقق قديم ثبت انحيازه")
+        champ = None
     decision, note = "rejected", gate_note or ""
     if validated:
-        ch_row = next(r for r in table if r["edge"] == thr)
         if champ is None or champ[0]["metrics"].get("source") != source:
-            decision, note = "champion", f"first validated model ({spec}): acc {ch_row['acc']:.3f} on {ch_row['n']} OOS"
+            decision, note = "champion", f"validated ({spec}/{algo}): {wf.trades_wins}/{wf.trades_n} independent OOS trades"
         else:
-            cp = champ[1].predict(Xte)
-            ctable = calibration_table(cp, yte)
-            cthr = champ[0]["metrics"].get("threshold")
-            c_row = next((r for r in ctable if cthr is not None and r["edge"] == cthr), None)
-            if c_row is None or c_row["acc"] is None or (ch_row["wilson_lb"] > c_row["wilson_lb"]):
-                decision = "champion"
-                note = (f"challenger ({spec}) LB {ch_row['wilson_lb']:.3f} > incumbent LB "
-                        f"{(c_row or {}).get('wilson_lb', 0) or 0:.3f} on same window")
+            inc = champ[0]["metrics"].get("gates", {}).get("lb") or 0
+            if (g["lb"] or 0) > inc:
+                decision, note = "champion", f"challenger LB {g['lb']:.4f} > incumbent LB {inc:.4f}"
             else:
-                note = "validated, but incumbent equal or better on the same window"
+                note = "validated, but incumbent's lower bound is equal or better"
     metrics["promotion_note"] = note
-    mid = registry.register(market["id"], duration, model, metrics, "candidate", note)
+    if model is not None:
+        model.meta = metrics
+    mid = registry.register(market["id"], duration, model, metrics, "candidate", note) if model is not None else None
     if decision == "champion":
         registry.promote(mid)
         db.event("info", "model", f"ترقية نموذج جديد {market['id']} {duration}ث ({spec}): {note}")
-    else:
+    elif mid is not None:
         db.execute("UPDATE models SET status='rejected' WHERE id=?", (mid,))
-    res.update(status=decision, model_id=mid, note=note, test_accuracy=metrics["test_accuracy"], threshold=thr,
-               validated=validated, brier=calib["brier"], brier_baseline=calib["brier_baseline"])
+    db.execute("INSERT INTO hypothesis_ledger(created_at,market,duration,source,spec,algo,proposer,rationale,data_start,"
+               "data_end,family,z,trades,wins,accuracy,lb,required,validated,outcome,reasons,model_id) "
+               "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+               (time.time(), market["id"], duration, source, spec, algo, proposer, rationale[:300], float(ds.ts[0]),
+                float(ds.ts[-1]), family, z, wf.trades_n, wf.trades_wins, wf.acc, g["lb"], required, int(validated),
+                decision, json.dumps(g["reasons"], ensure_ascii=False), mid))
+    res.update(status=decision, model_id=mid, note=note, test_accuracy=wf.acc, threshold=thr, validated=validated,
+               trades=wf.trades_n, lb=g["lb"], brier=calib.get("brier"), brier_baseline=calib.get("brier_baseline"))
     return res
 
 
@@ -273,7 +265,8 @@ def pick_source(db: DB, market: dict) -> str | None:
 
 
 def retrain_all(db: DB, registry: Registry, settings: Settings, markets: list[dict] | None = None,
-                specs: tuple[str, ...] = ("base",), progress=None) -> list[dict]:
+                specs: tuple[str, ...] = ("base",), progress=None, proposers: dict | None = None,
+                rationales: dict | None = None) -> list[dict]:
     from ..markets import list_markets
     out, jobs = [], []
     for m in markets or list_markets(db, enabled_only=True):
@@ -282,22 +275,25 @@ def retrain_all(db: DB, registry: Registry, settings: Settings, markets: list[di
             continue
         bars = np.asarray(db.bars(m["id"], src, 0), dtype=float)
         for d in DURATIONS:
-            jobs.append((m, d, src, build_dataset(bars, d)))
+            jobs.append((m, d, src, build_dataset(bars, d, delay_s=settings.exec_delay_s)))
     tested = [j for j in jobs if len(j[3].y) >= MIN_SAMPLES]
-    family = len(tested) * len(specs)          # every (market, duration, spec) is one hypothesis
+    family = ledger_family(db, settings, len(tested) * len(specs))
     total = len(jobs) * len(specs)
     done = 0
     for m, d, src, ds in jobs:
         for spec in specs:
             try:
-                out.append(train_one(db, registry, settings, m, d, src, None, family=family, ds=ds, spec=spec))
+                out.append(train_one(db, registry, settings, m, d, src, None, family=family, ds=ds, spec=spec,
+                                     proposer=(proposers or {}).get(spec, "rule"),
+                                     rationale=(rationales or {}).get(spec, "")))
             except Exception as e:  # one failure must not stop the others
                 log.exception("training failed for %s %s %s", m["id"], d, spec)
                 out.append({"market": m["id"], "duration": d, "spec": spec, "status": f"error: {e}"})
             done += 1
             if progress:
                 progress(done, total, f"{m['id']} {d}s {spec}")
-    db.kv_set("last_retrain", {"at": time.time(), "results": out, "family_size": family, "z_gate": z_for(family),
+    from .validation import z_family
+    db.kv_set("last_retrain", {"at": time.time(), "results": out, "family_size": family, "z_gate": z_family(family),
                                "specs": list(specs)})
     return out
 
@@ -308,10 +304,14 @@ def revalidate(registry: Registry, settings: Settings, model_row: dict, ds) -> t
     thr = meta.get("threshold")
     if thr is None or len(ds.y) < MIN_SAMPLES:
         return False, {"reason": "no threshold or not enough data"}
+    from .validation import non_overlapping, z_family
     m = DirectionModel.load(__import__("pathlib").Path(model_row["path"]))
     cut = int(len(ds.y) * 0.7)
-    k, n = _thr_acc(m.predict(ds.X[cut:]), ds.y[cut:], thr)
-    ok = n >= settings.min_validation_samples and wilson_lb(k, n, z_for(1)) > settings.breakeven
+    idx = np.arange(cut, len(ds.y))
+    idx = idx[non_overlapping(ds.ts[idx], model_row["duration"])]     # independent trades only
+    k, n = _thr_acc(m.predict(ds.X[idx]), ds.y[idx], thr)
+    required = settings.breakeven + settings.cost_buffer
+    ok = n >= settings.min_validation_samples and wilson_lb(k, n, z_family(1)) > required
     return ok, {"n": n, "acc": k / n if n else None}
 
 
@@ -342,7 +342,7 @@ def auto_rollback(db: DB, registry: Registry, settings: Settings, market: str, d
     src = pick_source(db, m) if m else None
     if src is None:
         return None
-    ds = build_dataset(np.asarray(db.bars(market, src, 0), dtype=float), duration)
+    ds = build_dataset(np.asarray(db.bars(market, src, 0), dtype=float), duration, delay_s=settings.exec_delay_s)
     for row in db.all("SELECT * FROM models WHERE market=? AND duration=? AND status='retired' AND promoted_at IS NOT NULL "
                       "AND id != ? ORDER BY promoted_at DESC LIMIT 5", (market, duration, exclude or -1)):
         meta = json.loads(row["metrics"] or "{}")

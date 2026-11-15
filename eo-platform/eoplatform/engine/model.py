@@ -62,9 +62,16 @@ class Dataset:
     entry: np.ndarray
 
 
-def build_dataset(bars: np.ndarray, duration: int) -> Dataset:
+def build_dataset(bars: np.ndarray, duration: int, delay_s: int = 0) -> Dataset:
     """Samples at every analysis-candle close: features up to that candle, label =
-    did the close `duration` seconds later end above (1) or below (0). Equal → dropped."""
+    did the price `duration` seconds after ENTRY end above (1) or below (0). Equal → dropped.
+
+    ``delay_s`` models execution delay: entry is the 1-second close ``delay_s`` seconds after
+    the candle closed (the signal cannot be acted on at the exact closing tick), and expiry is
+    ``duration`` seconds after that entry. Labels are read from the genuine 1-second bars; a
+    sample is dropped when either second is missing (never interpolated)."""
+    if delay_s:
+        return _build_dataset_delayed(bars, duration, delay_s)
     P = ANALYSIS_PERIOD[duration]
     steps = duration // P
     c = resample(bars, P)
@@ -78,6 +85,28 @@ def build_dataset(bars: np.ndarray, duration: int) -> Dataset:
     idx = idx[valid]
     y = (c[idx + steps, 4] > c[idx, 4]).astype(int)
     return Dataset(feats[idx], y, c[idx, 0] + P, c[idx, 4])
+
+
+def _build_dataset_delayed(bars: np.ndarray, duration: int, delay_s: int) -> Dataset:
+    P = ANALYSIS_PERIOD[duration]
+    c = resample(bars, P)
+    if len(c) < F.MIN_CANDLES + 10 or len(bars) == 0:
+        return Dataset(np.empty((0, len(F.FEATURES))), np.empty(0), np.empty(0), np.empty(0))
+    feats = F.compute(c).to_numpy()
+    ok = F.contiguous(c, P)
+    bts = bars[:, 0].astype(np.int64)
+    entry_t = (c[:, 0] + P - 1 + delay_s).astype(np.int64)      # close of this second = entry price
+    exit_t = entry_t + duration
+    ie = np.searchsorted(bts, entry_t)
+    ix = np.searchsorted(bts, exit_t)
+    have = (ie < len(bts)) & (ix < len(bts))
+    ie_c, ix_c = np.clip(ie, 0, len(bts) - 1), np.clip(ix, 0, len(bts) - 1)
+    have &= (bts[ie_c] == entry_t) & (bts[ix_c] == exit_t)
+    pe, px = bars[ie_c, 4], bars[ix_c, 4]
+    valid = ok & have & (pe != px) & ~np.isnan(feats).any(axis=1)
+    idx = np.flatnonzero(valid)
+    y = (px[idx] > pe[idx]).astype(int)
+    return Dataset(feats[idx], y, c[idx, 0] + P, pe[idx])
 
 
 def calibration_table(p_up: np.ndarray, y: np.ndarray) -> list[dict]:
@@ -103,43 +132,99 @@ def choose_threshold(table: list[dict], breakeven: float, min_n: int, z: float =
     return None
 
 
+ALGOS = ("xgboost", "lightgbm", "catboost", "logistic")
+
+
 class DirectionModel:
-    def __init__(self, booster: xgb.Booster | None = None, meta: dict | None = None):
+    """One interface over several local ML libraries. ``booster`` is the fitted estimator
+    (an xgboost Booster for 'xgboost', the library's own model object otherwise)."""
+
+    def __init__(self, booster=None, meta: dict | None = None, algo: str = "xgboost"):
         self.booster = booster
         self.meta = meta or {}
-
-    @staticmethod
-    def train(X: np.ndarray, y: np.ndarray, seed: int = 7, params: dict | None = None,
-              feature_idx: list[int] | None = None) -> "DirectionModel":
-        kw = dict(n_estimators=250, max_depth=3, learning_rate=0.05, subsample=0.8, colsample_bytree=0.8,
-                  min_child_weight=5, reg_lambda=2.0)
-        kw.update(params or {})
-        clf = xgb.XGBClassifier(**kw, eval_metric="logloss", random_state=seed, n_jobs=2, tree_method="hist")
-        clf.fit(X if feature_idx is None else X[:, feature_idx], y)
-        m = DirectionModel(clf.get_booster())
-        m.feature_idx = feature_idx
-        return m
+        self.algo = self.meta.get("algo", algo)
 
     feature_idx: list[int] | None = None
 
+    interactions: list | None = None
+
+    @staticmethod
+    def _transform(X: np.ndarray, feature_idx, interactions) -> np.ndarray:
+        """Column subset, plus products of feature pairs (indices into the FULL feature vector)."""
+        Xf = X if feature_idx is None else X[:, feature_idx]
+        if interactions:
+            Xf = np.hstack([Xf] + [(X[:, i] * X[:, j])[:, None] for i, j in interactions])
+        return Xf
+
+    @staticmethod
+    def train(X: np.ndarray, y: np.ndarray, seed: int = 7, params: dict | None = None,
+              feature_idx: list[int] | None = None, algo: str = "xgboost",
+              interactions: list | None = None) -> "DirectionModel":
+        Xf = DirectionModel._transform(X, feature_idx, interactions)
+        params = dict(params or {})
+        if algo == "xgboost":
+            kw = dict(n_estimators=250, max_depth=3, learning_rate=0.05, subsample=0.8, colsample_bytree=0.8,
+                      min_child_weight=5, reg_lambda=2.0)
+            kw.update(params)
+            clf = xgb.XGBClassifier(**kw, eval_metric="logloss", random_state=seed, n_jobs=2, tree_method="hist")
+            clf.fit(Xf, y)
+            est = clf.get_booster()
+        elif algo == "lightgbm":
+            import lightgbm as lgb
+            kw = dict(n_estimators=300, num_leaves=15, learning_rate=0.03, subsample=0.8, subsample_freq=1,
+                      colsample_bytree=0.8, min_child_samples=40, reg_lambda=5.0)
+            kw.update(params)
+            est = lgb.LGBMClassifier(**kw, random_state=seed, n_jobs=2, verbose=-1).fit(Xf, y)
+        elif algo == "catboost":
+            from catboost import CatBoostClassifier
+            kw = dict(iterations=300, depth=4, learning_rate=0.05, l2_leaf_reg=5.0)
+            kw.update(params)
+            est = CatBoostClassifier(**kw, random_seed=seed, thread_count=2, verbose=False).fit(Xf, y)
+        elif algo == "logistic":
+            from sklearn.impute import SimpleImputer
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.pipeline import make_pipeline
+            from sklearn.preprocessing import StandardScaler
+            est = make_pipeline(SimpleImputer(strategy="median"), StandardScaler(),
+                                LogisticRegression(C=params.get("C", 0.05), max_iter=500)).fit(Xf, y)
+        else:
+            raise ValueError(f"unknown algo {algo}")
+        m = DirectionModel(est, {"algo": algo}, algo)
+        m.feature_idx = feature_idx
+        m.interactions = interactions
+        return m
+
     def predict(self, X: np.ndarray) -> np.ndarray:
-        X = np.atleast_2d(X)
+        X = np.atleast_2d(np.asarray(X, dtype=float))
         idx = self.feature_idx if self.feature_idx is not None else self.meta.get("feature_idx")
-        if idx is not None:
-            X = X[:, idx]
-        return self.booster.predict(xgb.DMatrix(X, feature_names=None))
+        inter = self.interactions if self.interactions is not None else self.meta.get("interactions")
+        X = self._transform(X, idx, inter)
+        if self.algo == "xgboost":
+            return self.booster.predict(xgb.DMatrix(X, feature_names=None))
+        return self.booster.predict_proba(X)[:, 1]
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.booster.save_model(str(path))
+        self.meta["algo"] = self.algo
+        if self.algo == "xgboost":
+            self.booster.save_model(str(path))
+        else:
+            import joblib
+            joblib.dump(self.booster, str(path))
         path.with_suffix(".meta.json").write_text(json.dumps(self.meta, default=str))
 
     @staticmethod
     def load(path: Path) -> "DirectionModel":
-        b = xgb.Booster()
-        b.load_model(str(path))
         meta_p = path.with_suffix(".meta.json")
-        return DirectionModel(b, json.loads(meta_p.read_text()) if meta_p.exists() else {})
+        meta = json.loads(meta_p.read_text()) if meta_p.exists() else {}
+        algo = meta.get("algo", "xgboost")
+        if algo == "xgboost":
+            b = xgb.Booster()
+            b.load_model(str(path))
+        else:
+            import joblib
+            b = joblib.load(str(path))      # only files this platform wrote into its own model dir
+        return DirectionModel(b, meta, algo)
 
 
 def confidence_for(meta: dict, p_up: float) -> dict | None:
@@ -179,9 +264,11 @@ class Registry:
                  note: str = "") -> int:
         cur = self.db.execute(
             "INSERT INTO models(market,duration,created_at,algo,metrics,status,note) VALUES(?,?,?,?,?,?,?)",
-            (market, duration, time.time(), "xgboost", json.dumps(metrics, default=float), status, note))
+            (market, duration, time.time(), getattr(model, "algo", "xgboost"), json.dumps(metrics, default=float),
+             status, note))
         mid = cur.lastrowid
-        path = self.model_dir / f"{market}_{duration}_{mid}.ubj"
+        ext = "ubj" if getattr(model, "algo", "xgboost") == "xgboost" else "joblib"
+        path = self.model_dir / f"{market}_{duration}_{mid}.{ext}"
         model.meta = metrics
         model.save(path)
         self.db.execute("UPDATE models SET path=? WHERE id=?", (str(path), mid))

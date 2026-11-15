@@ -277,8 +277,14 @@ class Core:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(self.pool, trainer.check_live_degradation, self.db, self.registry, self.s)
             from ..learning import research
-            async with self.agent_lock:   # the cycle may consult Qwen; never overlap with an agent run
-                await loop.run_in_executor(self.pool, research.run_cycle, self)
+            last = (self.db.kv_get("research_last") or {}).get("finished", 0)
+            # Audit finding: every restart used to retrain on the same data (25 runs, 360 tests).
+            # Only run when the scheduled interval has actually elapsed since the last cycle.
+            if time.time() - last >= self.s.retrain_interval_min * 60:
+                async with self.agent_lock:   # the cycle may consult Qwen; never overlap with an agent run
+                    await loop.run_in_executor(self.pool, research.run_cycle, self)
+            else:
+                log.info("research cycle skipped: last one %.0f min ago", (time.time() - last) / 60)
             await asyncio.sleep(self.s.retrain_interval_min * 60)
 
     async def svc_maintenance(self) -> None:
