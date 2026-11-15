@@ -337,6 +337,53 @@ def status_text(s: dict) -> str:
     return "\n".join(out)
 
 
+# ---------------------------------------------------------------- image-style signal mode (owner's design)
+SIG_WELCOME = "📊 اختر السوق المُراد تحليله:"
+SIG_MARKETS = [          # only markets with GENUINE live data (Binance reference prices)
+    ("BTCUSD", "Bitcoin", "₿"), ("ETHUSD", "Ethereum", "💠"),
+    ("LTCUSD", "Litecoin", "🔷"), ("XRPUSD", "Ripple", "💧"),
+]
+SIG_DUR_AR = {30: "30 ثانية", 60: "دقيقة واحدة", 120: "دقيقتان", 300: "5 دقائق"}
+
+
+def sig_markets_keyboard() -> InlineKeyboardMarkup:
+    rows = [[btn(f"{name} {emoji}", f"sig:{mid}")] for mid, name, emoji in SIG_MARKETS]
+    rows.append([btn("🩺 حالة النظام", "status"), btn("❓ المساعدة", "help")])
+    return InlineKeyboardMarkup(rows)
+
+
+def sig_result_text(r: dict) -> str:
+    emoji = dict((m, e) for m, _, e in SIG_MARKETS).get(r["market"], "📊")
+    name = r.get("market_name") or r["market"]
+    if not r.get("ok"):
+        state = STATE_AR.get(r.get("data_state"), "غير متاحة")
+        return (f"📊 السوق : {esc(name)} {emoji}\n\n"
+                f"⏳ لا تتوفر بيانات حية الآن لهذا السوق (الحالة: {state}).\n"
+                "لا تُعرض إشارة دون بيانات حقيقية حديثة. أعد المحاولة بعد قليل.")
+    dir_ar = "🟢 الصفقة : شراء / Buy" if r["direction"] == "BUY" else "🔴 الصفقة : بيع / Sell"
+    lines = [
+        f"📊 السوق : {esc(name)} {emoji}",
+        "",
+        f"⏱️ الوقت : {SIG_DUR_AR.get(r['duration'], str(r['duration']) + ' ث')}",
+        "",
+        dir_ar,
+    ]
+    age = f"{r['data_age']} ث" if r.get("data_age") is not None else "—"
+    lines += [
+        "",
+        f"<i>السعر المرجعي: {fmt_price(r.get('price'))} (Binance — ليست أسعار ExpertOption) · عمر البيانات {age}</i>",
+        f"<i>⚠️ اتجاه فني غير مثبت إحصائيًا — الدقة المقاسة تاريخيًا لهذا النوع ≈ {r['measured_accuracy'] * 100:.0f}%.</i>",
+        "<i>تحليل فقط، لا تداول. لا ضمان لأي نتيجة.</i>",
+    ]
+    return "\n".join(lines)
+
+
+def sig_after_keyboard(market_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [btn("🔄 تحليل جديد", f"sig:{market_id}"), btn("🔁 سوق آخر", "sigmenu")],
+    ])
+
+
 def telegram_line(t: dict) -> str:
     """Polling health of THIS bot process. A 409 Conflict means another process is polling with
     the same token: Telegram then splits updates between them, so replies become erratic."""

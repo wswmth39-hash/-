@@ -150,13 +150,14 @@ class TelegramService:
         q.append(now)
 
     # ------------------------------------------------------------------ analysis
-    async def analyze(self, user_id: int, market_id: str, force: bool = False) -> dict:
-        """``force`` (🔄 refresh) skips the duplicate cache but NOT the rate limit."""
+    async def analyze(self, user_id: int, market_id: str, force: bool = False, mode: str = "full") -> dict:
+        """``force`` (🔄 refresh) skips the duplicate cache but NOT the rate limit.
+        ``mode``: "full" (decision engine) or "image" (owner-design forced BUY/SELL)."""
         uh = user_hash(user_id, self.core.s.session_secret)
         m = get_market(self.core.db, market_id)
         if m is None or not m["enabled"]:
             raise KeyError(market_id)
-        key = (uh, market_id)
+        key = (uh, market_id, mode)
         cached = self._recent.get(key)
         if cached and not force and time.time() - cached[0] < self.dedupe_s:
             return {**cached[1], "duplicate": True}
@@ -166,10 +167,11 @@ class TelegramService:
         fut = asyncio.get_running_loop().create_future()
         self._inflight[key] = fut
         try:
-            res = await self._analyze(uh, m)
+            res = await self._analyze(uh, m, mode)
             self._recent[key] = (time.time(), res)
-            slot = self._last.setdefault(uh, {})
-            slot[market_id] = slot["_last"] = res
+            if mode == "full":
+                slot = self._last.setdefault(uh, {})
+                slot[market_id] = slot["_last"] = res
             fut.set_result(res)
             return res
         except BaseException as e:
@@ -180,7 +182,7 @@ class TelegramService:
         finally:
             self._inflight.pop(key, None)
 
-    async def _analyze(self, uh: str, m: dict) -> dict:
+    async def _analyze(self, uh: str, m: dict, mode: str = "full") -> dict:
         t0 = time.perf_counter()
         loop = asyncio.get_running_loop()
         async with self._sem:
@@ -194,10 +196,16 @@ class TelegramService:
                 log.exception("telegram analysis failed")
                 self._log(uh, m["id"], None, None, [], "error", t0)
                 raise EngineUnavailable(type(e).__name__) from e
-        res = self.choose(m, sigs)
+        res = self.signal(m, sigs) if mode == "image" else self.choose(m, sigs)
         res["latency_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-        self._log(uh, m["id"], res["decision"], res["horizon"], [s.get("id") for s in sigs], "ok", t0)
+        self._log(uh, m["id"], res.get("decision") or res.get("direction") or "WAIT",
+                  res.get("horizon") or res.get("duration"), [s.get("id") for s in sigs], "ok", t0)
         return res
+
+    def signal(self, m: dict, sigs: list[dict]) -> dict:
+        """Image-style forced BUY/SELL signal (owner design) from the SAME real analysis as choose()."""
+        from .signal_mode import forced_signal
+        return forced_signal(m, sigs)
 
     def _run_all(self, market_id: str) -> list[dict]:
         return [self.core.analyze_fast(market_id, d, trigger="telegram") for d in DURATIONS]

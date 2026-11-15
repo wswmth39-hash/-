@@ -156,8 +156,14 @@ class EOTelegramBot:
         return wrapper
 
     # ------------------------------------------------------------------ commands
+    @property
+    def image_mode(self) -> bool:
+        return getattr(self.core.s, "signal_style", "full") == "image"
+
     @guard
     async def cmd_start(self, update, ctx):
+        if self.image_mode:
+            return await update.effective_chat.send_message(T.SIG_WELCOME, reply_markup=T.sig_markets_keyboard())
         await update.effective_chat.send_message(T.WELCOME, reply_markup=self._markets_markup(0, "all", menu=True))
 
     @guard
@@ -247,6 +253,11 @@ class EOTelegramBot:
     async def on_button(self, update, ctx):
         q = update.callback_query
         data = q.data or ""
+        if data.startswith("sig:"):
+            return await self._signal(update, data[4:])
+        if data == "sigmenu":
+            await q.answer()
+            return await self._send(update, T.SIG_WELCOME, T.sig_markets_keyboard())
         if data.startswith("an:"):
             return await self._analyze(update, data[3:])
         if data.startswith("rf:"):
@@ -290,6 +301,20 @@ class EOTelegramBot:
         text = re.sub(r"[^\w/ \u0600-\u06FF]", "", (update.message.text or "").strip()[:40])
         if text:
             await self._search_results(update, text)
+
+    async def _signal(self, update: Update, market_id: str):
+        q = update.callback_query
+        if q is not None:
+            await q.answer("جارٍ التحليل…")
+        try:
+            r = await self.service.analyze(update.effective_user.id, market_id, force=True, mode="image")
+        except KeyError:
+            return await self._send(update, "❌ هذا السوق غير مدعوم.", T.sig_markets_keyboard())
+        except RateLimited as e:
+            return await self._send(update, f"⏳ طلبات كثيرة. حاول بعد {e.args[0]} ثانية.", T.sig_markets_keyboard())
+        except EngineUnavailable:
+            return await self._send(update, "⚠️ تعذّر الوصول إلى محرك التحليل الآن. حاول بعد قليل.", T.sig_markets_keyboard())
+        await self._send(update, T.sig_result_text(r), T.sig_after_keyboard(market_id))
 
     async def _analyze(self, update: Update, market_id: str, force: bool = False):
         q = update.callback_query
