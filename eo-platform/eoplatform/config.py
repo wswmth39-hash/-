@@ -65,6 +65,9 @@ class Settings:
     news_url: str = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
     news_window_min: int = 30
     alert_webhook: str = ""         # optional POST target for alerts (ntfy, Slack-compatible, your own)
+    telegram_token: str = ""        # EO_TELEGRAM_TOKEN (from BotFather) — never logged, never sent to browsers
+    telegram_allowed: tuple = ()    # EO_TELEGRAM_ALLOWED_USERS — numeric Telegram user IDs; empty = nobody
+    telegram_api_url: str = ""      # override only for tests (local fake Bot API server)
     retention_days: int = 30
     # --- freshness thresholds (seconds since last genuine update)
     live_max_age: float = 3.0
@@ -123,6 +126,10 @@ def load_settings(env_file: str | None = None) -> Settings:
         news_url=os.environ.get("EO_NEWS_URL", "https://nfs.faireconomy.media/ff_calendar_thisweek.json"),
         news_window_min=_i("EO_NEWS_WINDOW_MIN", 30),
         alert_webhook=os.environ.get("EO_ALERT_WEBHOOK", ""),
+        telegram_token=os.environ.get("EO_TELEGRAM_TOKEN", "").strip(),
+        telegram_allowed=tuple(int(x) for x in os.environ.get("EO_TELEGRAM_ALLOWED_USERS", "").replace(" ", "").split(",")
+                               if x.lstrip("-").isdigit()),
+        telegram_api_url=os.environ.get("EO_TELEGRAM_API_URL", ""),
         retention_days=_i("EO_RETENTION_DAYS", 30),
         live_max_age=_f("EO_LIVE_MAX_AGE", 3.0),
         delayed_max_age=_f("EO_DELAYED_MAX_AGE", 10.0),

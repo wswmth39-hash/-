@@ -146,6 +146,32 @@ def cmd_check_sources(a):
     print(json.dumps(rep, indent=2, ensure_ascii=False))
 
 
+def cmd_telegram_check(a):
+    """Verify the bot token against the REAL Telegram API (getMe). Prints facts only."""
+    import asyncio as _a
+
+    from telegram import Bot
+
+    from .config import load_settings
+    s = load_settings(a.env)
+    if not s.telegram_token:
+        sys.exit("EO_TELEGRAM_TOKEN is not set (see docs/TELEGRAM.md)")
+
+    async def go():
+        async with Bot(s.telegram_token, base_url=s.telegram_api_url or "https://api.telegram.org/bot") as b:
+            me = await b.get_me()
+            return me.username, me.id
+    try:
+        username, bot_id = _a.run(go())
+    except Exception as e:
+        msg = str(e).replace(s.telegram_token, "<TOKEN>")
+        sys.exit(f"Telegram check FAILED: {type(e).__name__}: {msg}")
+    print(json.dumps({"telegram": "OK — token valid, API reachable", "bot": f"@{username}", "bot_id": bot_id,
+                      "allowed_users": len(s.telegram_allowed)}, ensure_ascii=False, indent=2))
+    if not s.telegram_allowed:
+        print("WARNING: EO_TELEGRAM_ALLOWED_USERS is empty — the bot will refuse every user.")
+
+
 def cmd_import_csv(a):
     from .config import load_settings
     from .data.hub import DataHub
@@ -192,6 +218,7 @@ def main():
     sp = sub.add_parser("bridge-token"); sp.add_argument("--label", default="bridge"); sp.set_defaults(f=cmd_bridge_token)
     sub.add_parser("check-system").set_defaults(f=cmd_check_system)
     sub.add_parser("check-sources").set_defaults(f=cmd_check_sources)
+    sub.add_parser("telegram-check").set_defaults(f=cmd_telegram_check)
     sp = sub.add_parser("import-csv"); sp.add_argument("file"); sp.add_argument("--market", required=True)
     sp.add_argument("--source", required=True, choices=["expertoption", "binance", "import"]); sp.set_defaults(f=cmd_import_csv)
     sp = sub.add_parser("retrain"); sp.add_argument("--market"); sp.set_defaults(f=cmd_retrain)

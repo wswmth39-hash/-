@@ -179,7 +179,8 @@ class DirectionModel:
             from catboost import CatBoostClassifier
             kw = dict(iterations=300, depth=4, learning_rate=0.05, l2_leaf_reg=5.0)
             kw.update(params)
-            est = CatBoostClassifier(**kw, random_seed=seed, thread_count=2, verbose=False).fit(Xf, y)
+            est = CatBoostClassifier(**kw, random_seed=seed, thread_count=2, verbose=False,
+                                     allow_writing_files=False).fit(Xf, y)   # no catboost_info/ in the cwd
         elif algo == "logistic":
             from sklearn.impute import SimpleImputer
             from sklearn.linear_model import LogisticRegression

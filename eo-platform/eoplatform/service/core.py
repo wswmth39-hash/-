@@ -336,6 +336,19 @@ class Core:
                     log.warning("llm keep-alive failed: %s", e)
             await asyncio.sleep(240)
 
+    async def svc_telegram(self) -> None:
+        """Telegram bot inside the platform process (same Core, DB, engine). Long polling only."""
+        from ..telegram_bot.bot import EOTelegramBot
+        bot = EOTelegramBot(self, self.s.telegram_token, set(self.s.telegram_allowed),
+                            base_url=self.s.telegram_api_url or None)
+        self.telegram = bot
+        await bot.start()
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        finally:
+            await bot.stop()
+
     async def svc_crosscheck(self) -> None:
         from ..data.providers import crosscheck
         while True:
@@ -375,6 +388,10 @@ class Core:
             self.sup.spawn("news_calendar", self.svc_news)
         self.sup.spawn("auto_scanner", self.auto.run)
         self.sup.spawn("forward_tests", self.svc_forward_tests)
+        if self.s.telegram_token:
+            if not self.s.telegram_allowed:
+                self.db.event("warning", "telegram", "EO_TELEGRAM_ALLOWED_USERS فارغ: البوت سيرفض كل المستخدمين")
+            self.sup.spawn("telegram_bot", self.svc_telegram)
         if self.s.enable_binance:
             self.sup.spawn("crosscheck", self.svc_crosscheck)
         if self.s.llm_enabled:
