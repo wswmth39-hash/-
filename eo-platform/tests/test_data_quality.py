@@ -72,7 +72,8 @@ def test_availability_lists_and_reasons(settings):
     assert codes["XAUUSD"] == "no_allowed_source" and codes["ETHUSD"] == "no_data_yet"
     assert all(u["reason_ar"] for u in unavail) and len(avail) + len(unavail) == 34
     settings.enable_binance = False
-    assert DQ.availability(core, get_market(core.db, "BTCUSD"), now)["code"] == "provider_disabled"
+    assert DQ.availability(core, get_market(core.db, "ETHUSD"), now)["code"] == "provider_disabled"   # no data + off
+    assert DQ.availability(core, get_market(core.db, "BTCUSD"), now)["available"]    # genuine live data still counts
 
 
 def test_first_candle_is_whole_so_features_and_cache_are_stable(env):

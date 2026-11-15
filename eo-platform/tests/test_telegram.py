@@ -56,8 +56,8 @@ def test_start_shows_welcome_and_dynamic_markets(running):
     ids = {d[3:] for _, d in btns if d and d.startswith("an:")}
     from eoplatform.markets import list_markets
     assert ids <= {r["id"] for r in list_markets(core.db, enabled_only=True)}   # nothing hard-coded
-    assert any(d == "mk:1:all" for _, d in btns)                         # pagination
-    assert {"hist", "status", "search"} <= {d for _, d in btns}
+    assert len(ids) == 1                                                 # V4: available markets only (1 live here)
+    assert {"hist", "status", "search", "scan", "best", "models", "unav"} <= {d for _, d in btns}
 
 
 def test_market_click_runs_engine_immediately_and_answers_wait(running):
@@ -67,10 +67,12 @@ def test_market_click_runs_engine_immediately_and_answers_wait(running):
     t = m["text"]
     assert "انتظار" in t and "لا مدة مدعومة" in t                       # no validated model → WAIT
     assert "Binance" in t and "ليست أسعار ExpertOption ولا OTC" in t
-    assert "الثقة:</b> لا تُعرض" in t and "السعر المرجعي:</b> 6" in t
+    assert "الثقة المعايرة:</b> لا تتوفر" in t and "السعر المرجعي:</b> 6" in t
+    assert "حالة النموذج:</b> ❌ غير معتمد" in t and "عمر البيانات:</b>" in t and "<b>السبب:</b>" in t
     evaluated = t.split("المدد التي فُحصت:</b>")[1].split("\n")[0]
-    assert all(d in evaluated for d in ("30 ثانية", "دقيقة واحدة", "دقيقتان", "5 دقائق"))   # all horizons shown
-    assert "تحليل سوق آخر" in [b for b, _ in fake.buttons(m)][0]
+    assert all(d in evaluated for d in ("30 ثانية", "60 ثانية", "120 ثانية", "300 ثانية"))   # all horizons shown
+    datas = [d for _, d in fake.buttons(m)]
+    assert datas[:2] == ["det:BTCUSD", "why:BTCUSD"] and "rf:BTCUSD" in datas and "mk:0:all" in datas
     rows = core.db.all("SELECT * FROM telegram_requests")
     assert rows and rows[0]["status"] == "ok" and str(OWNER) not in rows[0]["user_hash"]
     assert core.db.one("SELECT count(*) n FROM signals WHERE trigger='telegram'")["n"] == 4   # all horizons analysed
@@ -175,12 +177,13 @@ def test_choice_picks_best_validated_horizon_else_wait(settings):
     r = svc.choose(m, sigs)
     assert r["decision"] == "BUY" and r["horizon"] == 120 and r["confidence"]["wilson_lb"] == 0.60
     t = T.result_text(r)
-    assert "شراء" in t and "دقيقتان" in t and "دقة مُتحققة 63.0%" in t and "احتمال" not in t   # not calibrated
+    assert "شراء" in t and "120 ثانية" in t and "دقة مُتحققة 63.0%" in t
+    assert "الاحتمال المعاير: لا يتوفر" in t and "احتمال مُعاير " not in t        # not calibrated → no number
     assert "أدلة مؤيدة" in t and "أدلة معارضة" in t
     # validated but below break-even after payout → not a trade
     r2 = svc.choose(m, [_sig(30, "BUY", True, 0.50, 0.53), _sig(60, "WAIT"), _sig(120, "WAIT"), _sig(300, "WAIT")])
     assert r2["decision"] == "WAIT" and r2["confidence"] is None
-    assert "الثقة:</b> لا تُعرض" in T.result_text(r2)
+    assert "الثقة المعايرة:</b> لا تتوفر" in T.result_text(r2)
     # unvalidated BUY is never shown as BUY
     r3 = svc.choose(m, [_sig(30, "BUY", False), _sig(60, "WAIT"), _sig(120, "WAIT"), _sig(300, "WAIT")])
     assert r3["decision"] == "WAIT"
@@ -430,3 +433,53 @@ def test_token_env_alias_is_accepted(tmp_path, monkeypatch):
     assert load_settings(str(empty)).telegram_token == "111:alias-not-real"
     monkeypatch.setenv("EO_TELEGRAM_TOKEN", "222:canonical-not-real")
     assert load_settings(str(empty)).telegram_token == "222:canonical-not-real"
+
+
+# ---------------------------------------------------------------- V4 commands and buttons
+def test_v4_scan_models_evidence_and_detail_buttons(running):
+    core, bot, fake = running
+    fake.command(OWNER, "/scan")
+    m = fake.wait_for(lambda m: "AUTO SCANNER" in m["text"])
+    assert "لا توجد فرصة مؤهلة حاليًا" in m["text"] and "فُحص 1 سوقًا متاحًا" in m["text"]
+    assert core.db.one("SELECT count(*) n FROM orders")["n"] == 0                  # analysis only
+    fake.command(OWNER, "/models")
+    fake.wait_for(lambda m: "حالة النماذج" in m["text"] and "نماذج معتمدة للاستخدام" in m["text"])
+    fake.command(OWNER, "/evidence")
+    fake.wait_for(lambda m: "لا يوجد تحليل سابق" in m["text"])
+    fake.command(OWNER, "/analyze btc")                                           # direct analysis by name
+    fake.wait_for(lambda m: "السوق:</b> BTCUSD" in m["text"])
+    fake.press(OWNER, "det:BTCUSD")
+    d = fake.wait_for(lambda m: "تفاصيل التحليل" in m["text"])
+    assert "المحللون الثمانية" in d["text"] and "شروط التحقق" in d["text"] and "❌" in d["text"]
+    assert "60 ثانية" in d["text"] and "ليس إثباتًا" in d["text"]
+    fake.press(OWNER, "why:BTCUSD")
+    w = fake.wait_for(lambda m: "لماذا WAIT" in m["text"])
+    assert "الشرط الذي لم يتحقق" in w["text"] and "قرار مقصود" in w["text"]
+    fake.command(OWNER, "/evidence")
+    fake.wait_for(lambda m: "تفاصيل التحليل — BTCUSD" in m["text"])
+    fake.press(OWNER, "unav")
+    u = fake.wait_for(lambda m: "الأسواق غير المتاحة الآن" in m["text"])
+    assert "OTC" in u["text"] and "البند 6.2" in u["text"] and "لا يُخترع لها أي سعر" in u["text"]
+    n = len(fake.sent)
+    fake.press(OWNER, "best")
+    assert _wait(lambda: len(fake.sent) > n and "لا توجد فرصة مؤهلة حاليًا" in fake.sent[-1]["text"])
+
+
+def test_v4_refresh_bypasses_duplicate_cache_but_not_rate_limit(running):
+    core, bot, fake = running
+    fake.press(OWNER, "an:BTCUSD")
+    fake.wait_for(lambda m: "السوق:</b> BTCUSD" in m["text"])
+    n0 = core.db.one("SELECT count(*) n FROM telegram_requests")["n"]
+    fake.press(OWNER, "an:BTCUSD")                                                 # duplicate: cached
+    fake.wait_for(lambda m: "طلب مكرر" in m["text"])
+    assert core.db.one("SELECT count(*) n FROM telegram_requests")["n"] == n0
+    fake.press(OWNER, "rf:BTCUSD")                                                 # refresh: new analysis
+    assert _wait(lambda: core.db.one("SELECT count(*) n FROM telegram_requests")["n"] == n0 + 1)
+
+
+def test_v4_markets_command_lists_available_only_with_unavailable_count(running):
+    core, bot, fake = running
+    fake.command(OWNER, "/markets")
+    m = fake.wait_for(lambda m: "الأسواق المتاحة للتحليل" in m["text"])
+    an = [d for _, d in fake.buttons(m) if d and d.startswith("an:")]
+    assert an == ["an:BTCUSD"] and "33 سوقًا غير متاحة" in m["text"]

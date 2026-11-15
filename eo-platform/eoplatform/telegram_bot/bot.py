@@ -32,8 +32,9 @@ CONFLICT_WINDOW_S = 90.0   # PTB retries failed polls with back-off ≤ 30 s, so
                            # re-occurs well inside this window; none for 90 s ⇒ resolved
 ERROR_WINDOW_S = 90.0
 
-COMMANDS = [("start", "القائمة الرئيسية"), ("markets", "عرض الأسواق"), ("status", "حالة النظام"),
-            ("history", "آخر التحليلات"), ("help", "المساعدة")]
+COMMANDS = [("start", "القائمة الرئيسية"), ("markets", "الأسواق المتاحة"), ("analyze", "تحليل سوق (مثل: /analyze btc)"),
+            ("scan", "تشغيل AUTO SCANNER"), ("evidence", "أدلة آخر تحليل"), ("models", "حالة النماذج"),
+            ("status", "حالة النظام"), ("history", "آخر التحليلات"), ("help", "المساعدة")]
 
 
 class TokenRedactor(logging.Filter):
@@ -88,6 +89,10 @@ class EOTelegramBot:
         a.add_handler(CommandHandler("status", self.cmd_status))
         a.add_handler(CommandHandler("history", self.cmd_history))
         a.add_handler(CommandHandler("help", self.cmd_help))
+        a.add_handler(CommandHandler("analyze", self.cmd_analyze))
+        a.add_handler(CommandHandler("scan", self.cmd_scan))
+        a.add_handler(CommandHandler("models", self.cmd_models))
+        a.add_handler(CommandHandler("evidence", self.cmd_evidence))
         a.add_handler(CallbackQueryHandler(self.on_button))
         a.add_handler(ChatMemberHandler(self.on_my_member, ChatMemberHandler.MY_CHAT_MEMBER))
         a.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_text))
@@ -156,9 +161,57 @@ class EOTelegramBot:
         q = " ".join(ctx.args or []).strip()
         if q:
             return await self._search_results(update, q)
-        ms = self.service.markets()
-        await update.effective_chat.send_message(T.markets_text(ms, "all"), parse_mode=ParseMode.HTML,
-                                                 reply_markup=T.markets_keyboard(ms, 0, "all"))
+        await self._send_markets(update, 0)
+
+    @guard
+    async def cmd_analyze(self, update, ctx):
+        q = " ".join(ctx.args or []).strip()
+        if not q:
+            return await self._send_markets(update, 0)
+        ms = self.service.markets(query=q)
+        exact = [m for m in ms if m["id"].lower() == q.lower().replace("/", "")]
+        live = self.service.markets(query=q, available_only=True)
+        pick = exact if len(exact) == 1 else ms if len(ms) == 1 else live if len(live) == 1 else None
+        if pick:                                  # exact id, single match, or single AVAILABLE match
+            return await self._analyze(update, pick[0]["id"])
+        await self._search_results(update, q)
+
+    @guard
+    async def cmd_scan(self, update, ctx):
+        await self._scan(update)
+
+    @guard
+    async def cmd_models(self, update, ctx):
+        await self._send(update, T.models_text(self.service.models()), T.InlineKeyboardMarkup([T.back_row()]))
+
+    @guard
+    async def cmd_evidence(self, update, ctx):
+        r = self.service.last_for(update.effective_user.id)
+        if r is None:
+            return await self._send(update, "لا يوجد تحليل سابق لك بعد. اختر سوقًا أولًا.", self._markets_markup(0, "all"))
+        await self._send(update, T.details_text(r), T.after_result_keyboard(r["market"], r["decision"]))
+
+    async def _send_markets(self, update, page: int):
+        ms = self.service.markets(available_only=True)
+        n_un = len(self.service.unavailable())
+        await self._send(update, T.markets_text(ms, "all", n_un), T.markets_keyboard(ms, page, "all"))
+
+    async def _scan(self, update, best_only: bool = False):
+        if update.callback_query:
+            await update.callback_query.answer("جارٍ الفحص…")
+        try:
+            rep = await self.service.scan(update.effective_user.id)
+        except RateLimited as e:
+            return await self._send(update, f"⏳ طلبات كثيرة. حاول بعد {e.args[0]} ثانية.",
+                                    T.InlineKeyboardMarkup([T.back_row()]))
+        except EngineUnavailable:
+            return await self._send(update, "⚠️ تعذّر تشغيل الفحص الآن. لم يُصدر أي قرار.",
+                                    T.InlineKeyboardMarkup([T.back_row()]))
+        if best_only and rep.get("best"):
+            b = rep["best"]
+            return await self._send(update, T.result_text(b) if "evaluated" in b else T.details_text(b),
+                                    T.after_result_keyboard(b["market"], b["decision"]))
+        await self._send(update, T.scan_text(rep), T.scan_keyboard(rep))
 
     @guard
     async def cmd_status(self, update, ctx):
@@ -174,7 +227,7 @@ class EOTelegramBot:
         await self._send(update, T.HELP, T.InlineKeyboardMarkup([T.back_row()]))
 
     def _markets_markup(self, page: int, kind: str, menu: bool = False):
-        ms = self.service.markets(None if kind == "all" else kind)
+        ms = self.service.markets(None if kind == "all" else kind, available_only=True)
         return T.markets_keyboard(ms, page, kind, menu=menu)
 
     async def _search_results(self, update, query: str):
@@ -192,14 +245,28 @@ class EOTelegramBot:
         data = q.data or ""
         if data.startswith("an:"):
             return await self._analyze(update, data[3:])
+        if data.startswith("rf:"):
+            return await self._analyze(update, data[3:], force=True)
+        if data in ("scan", "best"):
+            return await self._scan(update, best_only=(data == "best"))
         await q.answer()
+        if data.startswith(("det:", "why:")):
+            r = self.service.last_for(update.effective_user.id, data.split(":", 1)[1])
+            if r is None:
+                return await self._send(update, "انتهت صلاحية هذه النتيجة. حلّل السوق مجددًا.",
+                                        T.InlineKeyboardMarkup([T.back_row()]))
+            text = T.details_text(r) if data.startswith("det:") else T.wait_text(r)
+            return await self._send(update, text, T.after_result_keyboard(r["market"], r["decision"]))
+        if data == "unav":
+            return await self._send(update, T.unavailable_text(self.service.unavailable()),
+                                    T.InlineKeyboardMarkup([[T.btn("📈 الأسواق المتاحة", "mk:0:all")], T.back_row()]))
+        if data == "models":
+            return await self._send(update, T.models_text(self.service.models()), T.InlineKeyboardMarkup([T.back_row()]))
         if data == "menu":
             await self._send(update, T.WELCOME, self._markets_markup(0, "all", menu=True))
         elif data.startswith("mk:"):
-            _, page, kind = (data.split(":") + ["all"])[:3]
-            kind = kind if kind in ("all", "regular", "otc") else "all"
-            ms = self.service.markets(None if kind == "all" else kind)
-            await self._send(update, T.markets_text(ms, kind), T.markets_keyboard(ms, int(page) if page.isdigit() else 0, kind))
+            _, page, _kind = (data.split(":") + ["all"])[:3]
+            await self._send_markets(update, int(page) if page.isdigit() else 0)
         elif data == "hist":
             await self._send(update, T.history_text(self.service.history(update.effective_user.id)),
                              T.InlineKeyboardMarkup([T.back_row()]))
@@ -220,11 +287,12 @@ class EOTelegramBot:
         if text:
             await self._search_results(update, text)
 
-    async def _analyze(self, update: Update, market_id: str):
+    async def _analyze(self, update: Update, market_id: str, force: bool = False):
         q = update.callback_query
-        await q.answer("جارٍ التحليل…")
+        if q is not None:
+            await q.answer("جارٍ التحديث…" if force else "جارٍ التحليل…")
         try:
-            r = await self.service.analyze(update.effective_user.id, market_id)
+            r = await self.service.analyze(update.effective_user.id, market_id, force=force)
         except KeyError:
             return await self._send(update, "❌ هذا السوق غير مدعوم أو غير مفعّل.", T.InlineKeyboardMarkup([T.back_row()]))
         except RateLimited as e:
@@ -233,7 +301,7 @@ class EOTelegramBot:
         except EngineUnavailable:
             return await self._send(update, "⚠️ تعذّر الوصول إلى محرك التحليل الآن. لم يُصدر أي قرار. حاول بعد قليل.",
                                     T.InlineKeyboardMarkup([T.back_row()]))
-        await self._send(update, T.result_text(r), T.after_result_keyboard(market_id))
+        await self._send(update, T.result_text(r), T.after_result_keyboard(market_id, r["decision"]))
 
     async def on_my_member(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Bot added to a group/supergroup/channel → leave it immediately (private chats only)."""

@@ -121,6 +121,13 @@ def availability(core, market: dict, now: float | None = None) -> dict:
     if not market.get("enabled", 1):
         return {**base, "available": False, "code": "disabled", "reason_ar": REASONS_AR["disabled"]}
     srcs = allowed_sources(market)
+    # genuine fresh data from an ALLOWED source is what makes a market available; settings only
+    # explain why data is missing
+    for src in srcs:
+        h = health(core.hub, market["id"], src, now)
+        if h.get("usable"):
+            return {**base, "available": True, "code": "ok", "reason_ar": REASONS_AR["ok"], "source": src,
+                    "health": h}
     configured = [s for s in srcs if (s == "expertoption" and core.s.bridge_enabled)
                   or (s == "binance" and core.s.enable_binance)]
     if not configured:
@@ -129,11 +136,7 @@ def availability(core, market: dict, now: float | None = None) -> dict:
         return {**base, "available": False, "code": code, "reason_ar": REASONS_AR[code], "sources": srcs}
     best = None
     for src in configured:
-        h = health(core.hub, market["id"], src, now)
-        if h.get("usable"):
-            return {**base, "available": True, "code": "ok", "reason_ar": REASONS_AR["ok"], "source": src,
-                    "health": h}
-        best = best or h
+        best = best or health(core.hub, market["id"], src, now)
     code = best["reasons"][0] if best and best.get("reasons") else "no_data_yet"
     if code in ("not_live", "no_data_yet") and now - core.started < 120:
         code = "loading"

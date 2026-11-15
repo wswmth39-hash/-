@@ -62,9 +62,14 @@ class TelegramService:
         self._hits: dict[str, deque] = defaultdict(deque)
         self._inflight: dict[tuple, asyncio.Future] = {}
         self._recent: dict[tuple, tuple[float, dict]] = {}
+        self._last: dict[str, dict] = {}                 # user hash → {market: last result, "_last": …}
+        self._scan_cache: tuple[float, dict] | None = None
 
     # ------------------------------------------------------------------ markets
-    def markets(self, kind: str | None = None, query: str | None = None) -> list[dict]:
+    def markets(self, kind: str | None = None, query: str | None = None, available_only: bool = False) -> list[dict]:
+        """All enabled markets with their state; ``available_only`` keeps those with genuine fresh data
+        (or still loading right after start-up) — the default view of the bot."""
+        from ..data.quality import availability
         out = []
         q = (query or "").strip().lower().replace("/", "").replace(" ", "")
         for m in list_markets(self.core.db, enabled_only=True):
@@ -76,10 +81,45 @@ class TelegramService:
             src, state = self.core.hub.best_source(m)
             if state != "LIVE" and self.data_loading(m):
                 state = "LOADING"
+            if available_only:
+                av = availability(self.core, m)
+                if not av["available"] and state != "LOADING":
+                    continue
+                state = "LIVE" if av["available"] else state
             out.append({**m, "source": src, "state": state})
         # markets with live data first, then those still loading after startup, then alphabetical
         rank = {"LIVE": 0, "LOADING": 1}
         return sorted(out, key=lambda x: (rank.get(x["state"], 2), x["source"] is None, x["kind"], x["name"]))
+
+    def unavailable(self) -> list[dict]:
+        from ..data.quality import split_markets
+        return split_markets(self.core, list_markets(self.core.db, enabled_only=True))[1]
+
+    def last_for(self, user_id: int, market_id: str | None = None) -> dict | None:
+        uh = user_hash(user_id, self.core.s.session_secret)
+        d = self._last.get(uh) or {}
+        return d.get(market_id) if market_id else d.get("_last")
+
+    def models(self) -> dict:
+        from ..learning.models_view import summary
+        return summary(self.core.db)
+
+    async def scan(self, user_id: int) -> dict:
+        """AUTO SCANNER on demand (analysis only, never executes). Shared 30 s cache: many users
+        asking at once trigger one scan; each request still counts against the user's rate limit."""
+        uh = user_hash(user_id, self.core.s.session_secret)
+        if self._scan_cache and time.time() - self._scan_cache[0] < 30:
+            return {**self._scan_cache[1], "cached": True}
+        self._check_rate(uh)
+        loop = asyncio.get_running_loop()
+        async with self._sem:
+            try:
+                rep = await asyncio.wait_for(loop.run_in_executor(self.core.signal_pool, self.core.auto.scan_report),
+                                             self.timeout_s * 2)
+            except Exception as e:
+                raise EngineUnavailable(type(e).__name__) from e
+        self._scan_cache = (time.time(), rep)
+        return rep
 
     def uptime(self) -> float:
         return max(0.0, time.time() - self.core.started)
@@ -110,14 +150,15 @@ class TelegramService:
         q.append(now)
 
     # ------------------------------------------------------------------ analysis
-    async def analyze(self, user_id: int, market_id: str) -> dict:
+    async def analyze(self, user_id: int, market_id: str, force: bool = False) -> dict:
+        """``force`` (🔄 refresh) skips the duplicate cache but NOT the rate limit."""
         uh = user_hash(user_id, self.core.s.session_secret)
         m = get_market(self.core.db, market_id)
         if m is None or not m["enabled"]:
             raise KeyError(market_id)
         key = (uh, market_id)
         cached = self._recent.get(key)
-        if cached and time.time() - cached[0] < self.dedupe_s:
+        if cached and not force and time.time() - cached[0] < self.dedupe_s:
             return {**cached[1], "duplicate": True}
         if key in self._inflight:                       # same user, same market, already running
             return {**(await asyncio.shield(self._inflight[key])), "duplicate": True}
@@ -127,6 +168,8 @@ class TelegramService:
         try:
             res = await self._analyze(uh, m)
             self._recent[key] = (time.time(), res)
+            slot = self._last.setdefault(uh, {})
+            slot[market_id] = slot["_last"] = res
             fut.set_result(res)
             return res
         except BaseException as e:
@@ -223,4 +266,11 @@ class TelegramService:
                 "uptime_s": round(self.uptime()),
                 "data_loading": self.uptime() < STARTUP_GRACE_S and bool(self._live_sources())
                 and not any(v.get("proven") for v in (h["providers"] or {}).values()),
-                "telegram": h.get("telegram") or {}}
+                "telegram": h.get("telegram") or {},
+                "health": [hl for hl in (self._health_rows())],
+                "scanner": self.core.auto.stats_view() if getattr(self.core, "auto", None) else None}
+
+    def _health_rows(self) -> list[dict]:
+        from ..data.quality import health
+        return [health(self.core.hub, m, src) for (m, src) in sorted(self.core.hub.series)
+                if self.core.hub.series[(m, src)].last_rx]
