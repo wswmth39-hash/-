@@ -254,6 +254,43 @@ def create_app(settings: Settings, start_services: bool = True) -> FastAPI:
         from ..learning.models_view import summary
         return summary(core.db)
 
+    # ---------------------------------------------------------------- Telegram access control (owner)
+    def _access():
+        from ..telegram_bot.access import AccessControl
+        return core.telegram.access if getattr(core, "telegram", None) else AccessControl(core)
+
+    @app.get("/api/telegram/access")
+    async def tg_access(u=Depends(user)):
+        return _access().summary()                       # never includes the code, only code_required
+
+    @app.post("/api/telegram/access/code")
+    async def tg_set_code(request: Request, u=Depends(user)):
+        body = await request.json()
+        code = str(body.get("code") or "")
+        try:
+            _access().set_code(code)
+        except ValueError:
+            raise HTTPException(400, "الرمز قصير جدًا (4 أحرف على الأقل)") from None
+        return {"ok": True, "code_required": True}
+
+    @app.post("/api/telegram/access/clear-code")
+    async def tg_clear_code(u=Depends(user)):
+        _access().clear_code()
+        return {"ok": True, "code_required": False}
+
+    @app.post("/api/telegram/access/{action}/{uid}")
+    async def tg_user_action(action: str, uid: int, u=Depends(user)):
+        acc = _access()
+        if action == "ban":
+            acc.ban(uid)
+        elif action == "unban":
+            acc.unban(uid)
+        elif action == "revoke":
+            acc.revoke(uid)
+        else:
+            raise HTTPException(404)
+        return {"ok": True, "status": acc.status(uid)}
+
     @app.get("/api/scanner")
     async def scanner(u=Depends(user)):
         """AUTO SCANNER statistics + the last board (no execution happens here)."""

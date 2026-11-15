@@ -63,6 +63,8 @@ class EOTelegramBot:
         self.core = core
         self.allowed = allowed
         self.service = TelegramService(core)
+        from .access import AccessControl
+        self.access = AccessControl(core)
         install_redactor(token)
         self.username: str | None = None
         self.polling = False
@@ -122,6 +124,54 @@ class EOTelegramBot:
         if update.effective_chat:
             await update.effective_chat.send_message(text, parse_mode=ParseMode.HTML)
 
+    async def _access_gate(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> bool:
+        """True → the user may proceed. Otherwise this handles the reply (deny / prompt / unlock)
+        and returns False so NO command, button or feature runs for a locked/banned user."""
+        u = update.effective_user
+        uid = u.id if u else 0
+        if self._authorised(update):            # owner allow-list (self.allowed) always passes
+            return True
+        if self.access.is_banned(uid):
+            self.denied += 1
+            log.warning("banned telegram user blocked")
+            await self._reply_any(update, "⛔ تم حظرك من استخدام هذا البوت.")
+            return False
+        if self.access.is_granted(uid):
+            self.access.touch(uid)
+            return True
+        # locked. If no code is configured, fall back to the owner allow-list (old behaviour).
+        if not self.access.code_required():
+            await self._deny(update)
+            self.denied += 1
+            return False
+        msg = update.message
+        text = (msg.text or "").strip() if (msg and msg.text) else ""
+        if text and not text.startswith("/"):              # the user is trying a code (free text)
+            if self.access.check_code(text):               # never logged, never echoed
+                self.access.grant(uid)
+                self.core.db.event("info", "telegram", "منح مستخدم جديد صلاحية الدخول بعد إدخال الرمز الصحيح")
+                await update.effective_chat.send_message(
+                    "✅ تم التحقق. مرحبًا بك. أرسل /start للبدء.", parse_mode=ParseMode.HTML)
+                return False
+            self.denied += 1
+            log.warning("wrong telegram access code")
+            await update.effective_chat.send_message("❌ رمز غير صحيح. حاول مرة أخرى.")
+            return False
+        await self._reply_any(update, "🔒 هذا البوت محمي. أرسل الرمز السري للدخول:")
+        return False
+
+    async def _reply_any(self, update: Update, text: str) -> None:
+        if update.callback_query:
+            try:
+                await update.callback_query.answer()
+            except TelegramError:
+                pass
+        if update.effective_chat:
+            try:
+                await update.effective_chat.send_message(text, parse_mode=ParseMode.HTML)
+            except TelegramError:
+                pass
+
     async def _send(self, update: Update, text: str, markup=None) -> None:
         q = update.callback_query
         if q is not None:
@@ -146,9 +196,7 @@ class EOTelegramBot:
                 return None
             self.updates_handled += 1
             self.last_update_at = time.time()
-            if not self._authorised(update):
-                await self._deny(update)
-                self.denied += 1
+            if not await self._access_gate(update, ctx):   # secret-code gate on EVERY interaction
                 return None
             out = await fn(self, update, ctx)
             self.replies_ok[fn.__name__] = self.replies_ok.get(fn.__name__, 0) + 1

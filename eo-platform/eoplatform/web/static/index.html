@@ -226,6 +226,13 @@
         <div class="row"><select id="verify-market"></select><button class="btn ghost" id="verify-btn">تحقق الآن</button></div>
         <div id="verify-out" class="small"></div></div>
       <div class="card"><h2>الأخبار الاقتصادية القادمة (متوسطة/عالية التأثير)</h2><div class="tablewrap"><table id="news-table"><thead><tr><th>الوقت</th><th>العملة</th><th>الحدث</th><th>التأثير</th><th>المتوقع</th><th>السابق</th></tr></thead><tbody></tbody></table></div></div>
+      <div class="card"><h2>🔒 حماية بوت Telegram (الرمز السري)</h2>
+        <p class="small muted">لا يستطيع أي مستخدم استخدام البوت قبل إدخال الرمز الصحيح. المالك (ضمن EO_TELEGRAM_ALLOWED_USERS) معفى.</p>
+        <div id="tg-access-state" class="small"></div>
+        <div class="row"><input type="password" id="tg-code" placeholder="رمز سري جديد (4 أحرف+)" autocomplete="new-password">
+          <button class="btn" id="tg-code-set">تعيين الرمز</button>
+          <button class="btn ghost" id="tg-code-clear">إلغاء الحماية</button></div>
+        <div class="tablewrap"><table id="tg-users"><thead><tr><th>معرّف المستخدم</th><th>الحالة</th><th>آخر ظهور</th><th>إجراء</th></tr></thead><tbody></tbody></table></div></div>
       <div class="card"><h2>الخدمات الخلفية</h2><div class="tablewrap"><table id="svc-table"><thead><tr><th>الخدمة</th><th>الحالة</th><th>إعادات التشغيل</th><th>آخر خطأ</th></tr></thead><tbody></tbody></table></div></div>
       <div class="card"><h2>مصادر البيانات لكل سوق</h2><div class="tablewrap"><table id="src-table"><thead><tr><th>السوق</th><th>المصدر</th><th>الحالة</th><th>العمر (ث)</th><th>مقبول</th><th>مرفوض</th><th>فرق الساعة</th></tr></thead><tbody></tbody></table></div></div>
       <div class="card"><h2>سجل الأحداث</h2><div class="tablewrap"><table id="events"><thead><tr><th>الوقت</th><th>المستوى</th><th>النوع</th><th>الرسالة</th></tr></thead><tbody></tbody></table></div></div>

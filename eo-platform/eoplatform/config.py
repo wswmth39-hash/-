@@ -70,6 +70,7 @@ class Settings:
     telegram_api_url: str = ""      # override only for tests (local fake Bot API server)
     telegram_alerts: bool = True    # EO_TELEGRAM_ALERTS — push important alerts to the allowed users
     signal_style: str = "full"      # EO_SIGNAL_STYLE: "full" (honest WAIT bot) | "image" (always BUY/SELL, owner design)
+    telegram_access_code: str = ""  # EO_TELEGRAM_ACCESS_CODE: initial secret code; stored hashed, never logged
     retention_days: int = 30
     # --- freshness thresholds (seconds since last genuine update)
     live_max_age: float = 3.0
@@ -159,6 +160,7 @@ def load_settings(env_file: str | None = None) -> Settings:
         telegram_api_url=os.environ.get("EO_TELEGRAM_API_URL", ""),
         telegram_alerts=_b("EO_TELEGRAM_ALERTS", True),
         signal_style=(os.environ.get("EO_SIGNAL_STYLE", "full").strip().lower() or "full"),
+        telegram_access_code=os.environ.get("EO_TELEGRAM_ACCESS_CODE", "").strip(),
         retention_days=_i("EO_RETENTION_DAYS", 30),
         live_max_age=_f("EO_LIVE_MAX_AGE", 3.0),
         delayed_max_age=_f("EO_DELAYED_MAX_AGE", 10.0),

@@ -403,7 +403,34 @@ async function loadStatus() {
   const nw = await api('/api/news').catch(() => ({upcoming: []}));
   table('#news-table', null, nw.upcoming.map((e) => `<tr><td>${esc(fmtT(e.ts))}</td><td>${esc(e.currency)}</td><td class="ltr">${esc(e.title)}</td><td>${badge(e.impact === 'High' ? 'loss' : 'pending', e.impact === 'High' ? 'عالي' : 'متوسط')}</td><td>${esc(e.forecast)}</td><td>${esc(e.previous)}</td></tr>`));
   table('#events', null, ev.map((e) => `<tr><td>${esc(fmtT(e.ts))}</td><td>${badge(e.level === 'error' ? 'loss' : e.level === 'warning' ? 'pending' : '', e.level)}</td><td>${esc(e.kind)}</td><td class="small">${esc(e.message)}</td></tr>`));
+  loadAccess();
 }
+
+async function loadAccess() {
+  let a; try { a = await api('/api/telegram/access'); } catch (e) { return; }
+  $('#tg-access-state').innerHTML = a.code_required
+    ? `${dot('ok')} الحماية مفعّلة — مستخدمون مصرّح لهم: ${esc(a.granted)} · محظورون: ${esc(a.banned)} · مُلّاك: ${esc(a.owners)}`
+    : `${dot('warn')} الحماية غير مفعّلة — أي أحد ضمن قائمة المالك فقط يمكنه الدخول. عيّن رمزًا لفتحه لمن تثق بهم.`;
+  table('#tg-users', null, (a.users || []).map((r) => {
+    const st = r.banned ? badge('loss', 'محظور') : (r.granted_at ? badge('win', 'مصرّح') : badge('pending', 'بانتظار'));
+    const act = r.banned
+      ? `<button class="btn ghost" data-tg="unban" data-uid="${esc(r.uid)}">رفع الحظر</button>`
+      : `<button class="btn ghost" data-tg="revoke" data-uid="${esc(r.uid)}">إلغاء</button> <button class="btn ghost" data-tg="ban" data-uid="${esc(r.uid)}">حظر</button>`;
+    return `<tr><td class="ltr">${esc(r.uid)}</td><td>${st}</td><td>${esc(r.last_seen ? fmtT(r.last_seen) : '—')}</td><td>${act}</td></tr>`;
+  }));
+  $$('#tg-users [data-tg]').forEach((b) => b.addEventListener('click', async () => {
+    await api(`/api/telegram/access/${b.dataset.tg}/${b.dataset.uid}`, {method: 'POST'}); loadAccess();
+  }));
+}
+$('#tg-code-set')?.addEventListener('click', async () => {
+  const code = $('#tg-code').value.trim();
+  if (code.length < 4) return toast('الرمز قصير جدًا');
+  try { await api('/api/telegram/access/code', {method: 'POST', body: {code}}); $('#tg-code').value = ''; toast('تم تعيين الرمز'); loadAccess(); }
+  catch (e) { toast('تعذّر التعيين'); }
+});
+$('#tg-code-clear')?.addEventListener('click', async () => {
+  await api('/api/telegram/access/clear-code', {method: 'POST'}); toast('أُلغيت الحماية'); loadAccess();
+});
 
 async function loadSettings() {
   const [s, toks, mk] = await Promise.all([api('/api/settings'), api('/api/bridge/tokens'), api('/api/markets')]);
