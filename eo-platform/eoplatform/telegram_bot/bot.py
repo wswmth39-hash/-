@@ -32,9 +32,7 @@ CONFLICT_WINDOW_S = 90.0   # PTB retries failed polls with back-off ≤ 30 s, so
                            # re-occurs well inside this window; none for 90 s ⇒ resolved
 ERROR_WINDOW_S = 90.0
 
-COMMANDS = [("start", "القائمة الرئيسية"), ("markets", "الأسواق المتاحة"), ("analyze", "تحليل سوق (مثل: /analyze btc)"),
-            ("scan", "تشغيل AUTO SCANNER"), ("evidence", "أدلة آخر تحليل"), ("models", "حالة النماذج"),
-            ("status", "حالة النظام"), ("history", "آخر التحليلات"), ("help", "المساعدة")]
+COMMANDS = [("start", "القائمة الرئيسية")]   # only /start is shown in the Telegram command menu
 
 
 class TokenRedactor(logging.Filter):
