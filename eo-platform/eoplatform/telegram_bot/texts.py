@@ -353,10 +353,8 @@ SIG_DUR_AR = {30: "30 ثانية", 60: "دقيقة واحدة", 120: "دقيقت
 
 
 def sig_markets_keyboard() -> InlineKeyboardMarkup:
+    # Exactly the owner's screenshot: the 8 markets with their emojis, one per row, nothing else.
     rows = [[btn(f"{name} {emoji}", f"sigx:{i}")] for i, (name, emoji) in enumerate(SIG_DISPLAY)]
-    rows.append([btn("— أسواق ببيانات حقيقية —", "noop")])
-    rows += [[btn(f"{name} {emoji}", f"sig:{mid}")] for mid, name, emoji in SIG_MARKETS]
-    rows.append([btn("🩺 حالة النظام", "status"), btn("❓ المساعدة", "help")])
     return InlineKeyboardMarkup(rows)
 
 
