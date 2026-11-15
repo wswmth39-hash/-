@@ -15,7 +15,6 @@ ones only on genuine shocks or bad prints, and either way analysis should wait.
 """
 from __future__ import annotations
 
-import threading
 import time
 
 import numpy as np
@@ -40,8 +39,6 @@ REASONS_AR = {
     "disabled": "السوق معطّل في الإعدادات",
 }
 
-_cache: dict[tuple, tuple[float, dict]] = {}
-_lock = threading.Lock()
 
 
 def _spikes(close: np.ndarray, ts: np.ndarray) -> tuple[list[int], float | None]:
@@ -70,15 +67,15 @@ def health(hub, market: str, source: str, now: float | None = None) -> dict:
         last_bar = s.bars[-1][0] if s.bars else None
         state = hub._state(s, now)
         last_rx, rejected, frozen = s.last_rx, dict(s.rejected), hub.quality.get(market, {}).get(f"frozen_{source}")
-        with _lock:
-            cached = _cache.get((market, source))
-        if cached and cached[0] == last_bar:
+        # cache lives on the series object itself (a key by market name could be shared by two hubs)
+        stamp = (last_bar, len(s.bars))
+        cached = getattr(s, "_health_cache", None)
+        if cached and cached[0] == stamp:
             core = cached[1]
         else:
             tail = np.asarray([b[:5] for b in list(s.bars)[-WINDOW_S:]], dtype=float) if s.bars else np.zeros((0, 5))
             core = _window_stats(tail, last_bar)
-            with _lock:
-                _cache[(market, source)] = (last_bar, core)
+            s._health_cache = (stamp, core)
     age = round(now - last_rx, 2) if last_rx else None
     reasons = []
     if state != "LIVE":

@@ -17,6 +17,7 @@ import time
 from ..config import ANALYSIS_PERIOD, Settings
 from ..data.hub import DataHub, resample
 from . import analysis as A
+from . import analysts as AN
 from . import features as F
 from .model import Registry, confidence_for
 
@@ -44,6 +45,8 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
     def done():
         classify(sig, ctx, settings)
         explain(sig, ctx, settings, perf)
+        sig["panel"] = AN.panel(ctx.get("row"), ctx.get("c"), ctx.get("ev"), ctx.get("regime"), sig["data_state"],
+                                ctx.get("health"), ctx.get("model"))
         sig["latency_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         return sig
 
@@ -59,6 +62,7 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
         sig["warnings"].append("مصدر البيانات مرجعي وليس سعر ExpertOption نفسه؛ قد يختلف السعر قليلًا")
     from ..data import quality as DQ
     h = DQ.health(hub, market["id"], src, now)
+    ctx["health"] = h
     sig["data_health"] = {k: h.get(k) for k in ("last_bar_utc", "age_s", "gaps_last_hour", "longest_gap_s",
                                                 "spikes_last_hour", "recent_spike", "frozen", "degraded")}
 
@@ -75,6 +79,7 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
             sig["reasons"].append(f"حالة البيانات: {STATE_AR[state]}")
         return done()
 
+    ctx["c"] = c
     feats = F.compute_cached(c)
     row = feats.iloc[-1].to_dict()
     news_events = news_status = None
@@ -113,7 +118,10 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
         ctx["model_meta"] = mrow["metrics"]
         sig["candidate"] = "BUY" if p_up > 0.5 else "SELL"
     else:
-        sig["candidate"] = "BUY" if score > 0 else "SELL" if score < 0 else None
+        # no model: candidate direction from the redundancy-weighted analyst consensus (NOT a decision)
+        cons = AN.panel(row, c, ev, reg, state, h, None)["consensus"]
+        sig["consensus_score"] = cons
+        sig["candidate"] = "BUY" if cons > 0 else "SELL" if cons < 0 else None
 
     # reasons: strongest agreeing specialist facts first
     direction = 1 if sig["candidate"] == "BUY" else -1 if sig["candidate"] == "SELL" else 0
@@ -165,6 +173,9 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
                                     "wilson_lb": conf["wilson_lb"], "breakeven": settings.breakeven,
                                     "model_trained_at": mrow["created_at"]}
     ctx.update(thr=thr, p_up=p_up)
+    if meta.get("validated") and conf and conf.get("acc") is not None:
+        ctx["model"] = {"id": mrow["id"], "algo": meta.get("algo", "xgboost"), "p_up": p_up, "threshold": thr,
+                        "oos_acc": conf["acc"], "oos_n": conf["n"]}
     if thr is None:
         sig["reasons"].insert(0, "النموذج الحالي لم يحقق دقة أعلى من نقطة التعادل خارج العينة — انتظار")
         return done()
