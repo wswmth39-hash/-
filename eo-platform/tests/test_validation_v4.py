@@ -66,3 +66,11 @@ def test_feature_reference_is_stored_from_training_rows_only():
     ref = _feature_ref(X)
     assert len(ref["median"]) == len(F.FEATURES) and all(v > 0 for v in ref["scale"])
     assert _feature_ref(X[:100]) is None                                      # too few rows → no reference
+
+
+def test_rejection_reasons_are_translated():
+    from eoplatform.learning.models_view import reason_ar
+    assert reason_ar("only 50 independent out-of-sample trades (< 200)").startswith("50 صفقة مستقلة")
+    assert "≤ المطلوب 0.5656" in reason_ar("lower bound 0.2415 ≤ required 0.5656")
+    assert "1 من 4" in reason_ar("walk-forward inconsistent (1/4 trading folds at/above required)")
+    assert reason_ar("unknown text") == "unknown text"

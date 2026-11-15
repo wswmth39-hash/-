@@ -292,7 +292,7 @@ def models_text(s: dict) -> str:
     if rej:
         out.append("\n<b>آخر أسباب الرفض:</b>")
         for m in rej:
-            out.append(f"• #{m['id']} {esc(m['market'])} {m['duration']}ث: {esc('؛ '.join(m['reasons'][:2]) or m.get('note') or '—')}")
+            out.append(f"• #{m['id']} {esc(m['market'])} {m['duration']}ث: {esc('؛ '.join((m.get('reasons_ar') or m['reasons'])[:2]) or m.get('note') or '—')}")
     out.append("\nلا يُعتمد نموذج لدقته على بيانات التدريب؛ يلزم تحقق خارج العينة على صفقات مستقلة مع تصحيح التعدد.")
     return "\n".join(out)
 

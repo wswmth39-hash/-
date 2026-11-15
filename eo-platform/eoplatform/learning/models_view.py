@@ -3,6 +3,25 @@ Explains WHY each model is (not) in use, from the stored validation gates — no
 from __future__ import annotations
 
 import json
+import re
+
+_AR = [
+    (re.compile(r"only (\d+) independent out-of-sample trades \(< (\d+)\)"),
+     lambda m: f"{m[1]} صفقة مستقلة فقط خارج العينة (المطلوب {m[2]} على الأقل)"),
+    (re.compile(r"lower bound (\S+) ≤ required (\S+)"),
+     lambda m: f"الحد الأدنى للدقة {m[1]} ≤ المطلوب {m[2]}"),
+    (re.compile(r"walk-forward inconsistent \((\d+)/(\d+) trading folds at/above required\)"),
+     lambda m: f"غير مستقر عبر الفترات الزمنية ({m[1]} من {m[2]} فترات بلغت المطلوب)"),
+    (re.compile(r"does not beat the no-model baseline"), lambda m: "لا يتفوق على خط الأساس البسيط"),
+]
+
+
+def reason_ar(text: str) -> str:
+    for rx, fn in _AR:
+        m = rx.search(text or "")
+        if m:
+            return fn(m)
+    return text
 
 STATUS_AR = {"champion": "معتمد (اجتاز التحقق)", "candidate": "مرشح — قيد الاختبار المستقبلي",
              "rejected": "مرفوض", "retired": "مسحوب", "challenger": "منافس"}
@@ -25,6 +44,7 @@ def model_row(r: dict) -> dict:
             "fold_consistent": g.get("consistent"), "beats_baseline": g.get("beats_baseline"),
             "family_size": m.get("family_size"), "z_gate": m.get("z_gate"),
             "reasons": g.get("reasons") or ([m["gate_note"]] if m.get("gate_note") else []),
+            "reasons_ar": [reason_ar(x) for x in (g.get("reasons") or ([m["gate_note"]] if m.get("gate_note") else []))],
             "note": r.get("note"), "training_data": m.get("training_data"),
             "expected_value": m.get("expected_value")}
 
