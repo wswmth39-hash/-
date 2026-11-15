@@ -37,3 +37,11 @@ def test_forward_test_fails_when_edge_disappears(env):
     assert res["status"] == "failed", res
     assert reg.champion("EURUSD_OTC", 30) is None
     assert db.one("SELECT status FROM models WHERE id=?", (ft["model_id"],))["status"] == "rejected"
+
+
+def test_family_counts_all_registered_forward_tests(env):
+    s, db, reg, ft = _setup(env, trending_regime_bars, 9)
+    forward.register(db, reg, s, get_market(db, "EURUSD_OTC"), 60, "base", "second", target_n=150)
+    r = forward.evaluate(db, reg, s, db.one("SELECT * FROM forward_tests WHERE id=?", (ft["forward_test_id"],)))
+    meta = __import__("json").loads(db.one("SELECT metrics FROM models WHERE id=?", (ft["model_id"],))["metrics"])
+    assert meta["forward_result"]["family"] == 2 and r["status"] in ("passed", "failed")

@@ -38,7 +38,7 @@ function table(el, head, rows) {
 $$('#nav button').forEach((b) => b.addEventListener('click', () => {
   $$('#nav button').forEach((x) => x.classList.toggle('active', x === b));
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === 'v-' + b.dataset.view));
-  ({intel: loadIntel, auto: loadAuto, exec: loadExec, signals: loadSignals, agents: loadAgents, perf: loadPerf, monitor: loadMonitor, status: loadStatus, settings: loadSettings}[b.dataset.view] || (() => {}))(true);
+  ({pred: loadPred, intel: loadIntel, auto: loadAuto, exec: loadExec, signals: loadSignals, agents: loadAgents, perf: loadPerf, monitor: loadMonitor, status: loadStatus, settings: loadSettings}[b.dataset.view] || (() => {}))(true);
 }));
 $('#theme').addEventListener('click', () => {
   const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
@@ -116,6 +116,15 @@ function renderResult(s, agent) {
     <dt>زمن التحليل</dt><dd>${esc(s.latency_ms ?? '—')} مللي ثانية · ${s.source === 'agents' ? 'فريق الوكلاء' : 'المحرك السريع'}</dd>
   </dl>`;
   (s.warnings || []).forEach((w) => { h += `<div class="warnbox">${esc(w)}</div>`; });
+  if (s.abstain_reason) h += `<div class="warnbox">سبب الامتناع: ${esc(s.abstain_reason.text)}</div>`;
+  const ms = s.model_status || {};
+  h += `<p class="small">حالة النموذج: <b>${esc(ms.state === 'validated' ? 'مُتحقق منه' : ms.state === 'none' ? 'لا يوجد نموذج مُتحقق' : 'غير مُتحقق')}</b>${ms.oos_independent_trades ? ` · ${esc(ms.oos_independent_trades)} صفقة مستقلة خارج العينة بدقة ${pct(ms.oos_accuracy)} (حد أدنى ${pct(ms.oos_lb)})` : ''}<br>${esc(s.probability_note || '')}</p>`;
+  const cp = s.conditional_performance?.live;
+  if (cp) h += `<p class="small">الأداء الحي لهذا السوق والمدة: ${cp.published_signals.n ? `${pct(cp.published_signals.accuracy)} على ${cp.published_signals.n} ${cp.published_signals.verified ? '' : '(تجريبي)'}` : 'لا نتائج'} · في حالة السوق الحالية: ${cp.all_candidates_this_regime.n ? `${pct(cp.all_candidates_this_regime.accuracy)} على ${cp.all_candidates_this_regime.n} ${cp.all_candidates_this_regime.verified ? '' : '(تجريبي)'}` : 'لا نتائج'}</p>`;
+  if ((s.evidence_for || []).length || (s.evidence_against || []).length) {
+    h += `<div class="grid g2"><div><h3>أدلة مؤيدة</h3><ul class="reasons">${(s.evidence_for || []).map((e) => `<li>${esc(e.agent)} (${esc(e.score)}): ${esc(e.facts.join('، '))}</li>`).join('') || '<li class="muted">لا يوجد</li>'}</ul></div>
+      <div><h3>أدلة معارضة</h3><ul class="reasons">${(s.evidence_against || []).map((e) => `<li>${esc(e.agent)} (${esc(e.score)}): ${esc(e.facts.join('، '))}</li>`).join('') || '<li class="muted">لا يوجد</li>'}</ul></div></div>`;
+  }
   h += '<h3>الأسباب الفنية</h3><ul class="reasons">' + (s.reasons || []).map((r) => `<li>${esc(r)}</li>`).join('') + '</ul>';
   if (s.agents_status) h += `<div id="agent-live" class="small muted">🤖 فريق الوكلاء: في الطابور…</div>`;
   if (agent) h += agent;
@@ -377,6 +386,50 @@ $('#verify-btn').addEventListener('click', async () => {
   } catch (e) { out.innerHTML = `<div class="warnbox">${esc(e.message)}</div>`; }
 });
 
+// ---------------------------------------------------------------- PREDICTION INTELLIGENCE
+const ver = (v) => v ? badge('win', 'مُتحقق') : badge('pending', 'تجريبي');
+const ci = (c) => c ? `[${pct(c[0])} – ${pct(c[1])}]` : '';
+async function loadPred() {
+  const d = await api('/api/intel');
+  const champs = d.champions || [];
+  $('#pred-verdict').innerHTML = champs.length
+    ? `يوجد ${champs.length} نموذج مُفعّل اجتاز كل البوابات.`
+    : `<b>لا يوجد نموذج مُفعّل.</b> لم يُثبت أي نموذج دقة أعلى من المطلوب (${pct(d.required_accuracy)} = نقطة التعادل ${pct(d.breakeven)} + هامش تكاليف ${pct(d.cost_buffer)}) على صفقات مستقلة خارج العينة. لذلك القرار «انتظار» — وهذا السلوك الصحيح. تأخير التنفيذ المفترض في التدريب: ${esc(d.exec_delay_s)} ث.`;
+  const dist = d.distribution_7d, tot = (dist.BUY + dist.SELL + dist.WAIT) || 1;
+  const lp = d.live_published, lc = d.live_candidates;
+  $('#pred-stats').innerHTML = [
+    ['توزيع القرارات (7 أيام)', `${pct(dist.BUY / tot)} / ${pct(dist.SELL / tot)} / ${pct(dist.WAIT / tot)}`, `شراء / بيع / انتظار — ${tot} قرار`],
+    ['دقة الإشارات المنشورة', lp.n ? pct(lp.accuracy) : '—', lp.n ? `${lp.wins}/${lp.n} · ثقة 95% ${ci(lp.ci95)}` : 'لا نتائج'],
+    ['دقة كل الاتجاهات المرشحة', lc.n ? pct(lc.accuracy) : '—', lc.n ? `${lc.wins}/${lc.n} · ${ci(lc.ci95)}` : 'لا نتائج'],
+    ['الدقة المطلوبة', pct(d.required_accuracy), 'التعادل + هامش التكاليف'],
+  ].map(([a, b, c]) => `<div class="stat card"><span>${esc(a)}</span><b>${esc(b)}</b><span>${esc(c)}</span></div>`).join('');
+  const FST = {running: 'جارٍ', passed: 'نجح ✓', failed: 'فشل'};
+  table('#fwd-table', ['#', 'السوق', 'المدة', 'المواصفة', 'التقدم', 'الدقة', 'الحد الأدنى المصحح', 'الحالة'], (d.forward_tests || []).map((f) =>
+    `<tr><td>${esc(f.id)}</td><td>${esc(f.market)}</td><td>${esc(DUR[f.duration])}</td><td class="ltr">${esc(f.spec)}</td><td>${esc(f.n)}/${esc(f.target_n)}</td>
+     <td>${pct(f.accuracy)}</td><td>${pct(f.lb)}</td><td>${badge(f.status === 'passed' ? 'win' : f.status === 'failed' ? 'loss' : 'pending', FST[f.status])}</td></tr>`));
+  $('#champ-box').innerHTML = champs.length ? champs.map((c) => `<p><b>${esc(c.market)} ${esc(DUR[c.duration])}</b> (${esc(c.algo)}): ${esc(c.gates?.wins)}/${esc(c.gates?.trades)} صفقة مستقلة، حد أدنى ${pct(c.gates?.lb)}<br>الطيّات: ${(c.walk_forward || []).map((f) => f.n ? `${f.n} @ ${pct(f.acc)}` : 'امتناع').join(' · ')}</p>`).join('')
+    : '<p class="muted">لا يوجد بطل. انظر سجل الفرضيات لسبب رفض كل مرشح.</p>';
+  table('#pred-md', ['السوق', 'المدة', 'المنشورة', 'ثقة 95%', 'المرشحة', 'الحالة'], (d.by_market_duration || []).filter((r) => r.engine === 'fast').map((r) =>
+    `<tr><td>${esc(r.market)}</td><td>${esc(DUR[r.duration])}</td><td>${r.signals.n ? `${pct(r.signals.accuracy)} (${r.signals.n})` : '—'}</td>
+     <td>${r.signals.n ? `≥ ${pct(r.signals.wilson_lb)}` : ''}</td><td>${r.candidates.n ? `${pct(r.candidates.accuracy)} (${r.candidates.n})` : '—'}</td><td>${ver((r.candidates.n || 0) >= 30)}</td></tr>`));
+  $('#ledger-total').textContent = `(${d.ledger_total} فرضية مُختبرة إجمالًا — كلها تدخل في تصحيح تعدد الاختبارات)`;
+  table('#ledger-table', ['الوقت', 'السوق', 'المدة', 'المواصفة', 'المقترِح', 'صفقات مستقلة', 'الدقة', 'الحد الأدنى', 'النتيجة', 'السبب'], (d.ledger || []).map((r) =>
+    `<tr><td>${esc(fmtT(r.created_at))}</td><td>${esc(r.market)}</td><td>${esc(DUR[r.duration])}</td><td class="ltr">${esc(r.spec)}/${esc(r.algo)}</td><td>${r.proposer === 'qwen' ? 'Qwen' : 'قاعدة'}</td>
+     <td>${esc(r.trades)}</td><td>${pct(r.accuracy)}</td><td>${pct(r.lb)}</td><td>${badge(r.validated ? 'win' : 'loss', r.validated ? 'مُتحقق' : 'مرفوض')}</td><td class="small">${esc((r.reasons || []).join('؛ '))}</td></tr>`));
+  $('#proposals').innerHTML = (d.proposals || []).map((p) => {
+    const w = JSON.parse(p.weaknesses || '[]'), a = JSON.parse(p.accepted || '[]'), r = JSON.parse(p.rejected || '[]');
+    return `<p>${esc(fmtT(p.created_at))} — ${p.error ? `<span class="muted">${esc(p.error)}</span>` : `نقاط ضعف: ${esc(w.join('؛ ') || '—')}<br>قُبل للتجربة: <span class="ltr">${esc(a.join(', ') || '—')}</span> · رُفض (خارج القائمة): <span class="ltr">${esc(r.join(', ') || '—')}</span> · ${esc(p.secs)} ث`}</p>`;
+  }).join('') || '<p class="muted">لا مقترحات بعد.</p>';
+  const pv = d.data_sources.providers || {}, xc = d.data_sources.crosscheck;
+  $('#data-q').innerHTML = Object.entries(pv).map(([k, v]) => `<p>${dot(v.proven ? 'ok' : 'bad')} <b>${esc(SRC[k] || k)}</b>: ${v.proven ? 'متصل ✓ ببيانات حديثة' : 'غير متصل'} · آخر بيانات قبل ${esc(v.last_data_age ?? '—')} ث</p>`).join('') +
+    (xc ? `<p><b>التحقق المتقاطع (Kraken وCoinbase، للمقارنة فقط ولا يُخلط بالبيانات)</b> — ${esc(fmtT(xc.at))}</p>` + Object.entries(xc.markets).map(([m, r]) =>
+      `<p>${dot(r.status === 'consistent' ? 'ok' : r.status === 'disagrees' ? 'bad' : 'warn')} ${esc(m)}: Kraken وسيط ${esc(r.kraken?.median_pct ?? '—')}% · Coinbase وسيط ${esc(r.coinbase?.median_pct ?? '—')}% (${esc(r.kraken?.n ?? 0)} دقيقة)</p>`).join('') : '<p class="muted">لم يُجرَ التحقق المتقاطع بعد (كل 5 دقائق).</p>') +
+    '<p class="muted">Binance مصدر مرجعي فقط وليس أسعار ExpertOption ولا OTC. جسر ExpertOption معطّل.</p>';
+  table('#failed-table', ['#', 'الوقت', 'السوق', 'المدة', 'المرشح', 'القرار', 'حالة السوق', 'الفئة', 'أدلة معارضة كانت قائمة', 'النموذج'], (d.failed_predictions || []).map((r) =>
+    `<tr><td>${esc(r.id)}</td><td>${esc(fmtTime(r.created_at))}</td><td>${esc(r.market)}</td><td>${esc(DUR[r.duration])}</td><td>${esc(DEC[r.candidate] || '—')}</td><td>${badge(r.decision, DEC[r.decision])}</td>
+     <td>${esc(r.regime || '—')}</td><td>${esc(r.signal_class || '—')}</td><td class="small">${esc((r.against || []).join('، ') || '—')}</td><td>${esc(r.model_state || '—')}</td></tr>`));
+}
+
 // ---------------------------------------------------------------- SYSTEM & INTELLIGENCE
 const LAT = [['data_to_signal_ms', 'وصول البيانات ← الإشارة', 'ms'], ['fast_analysis_ms', 'التحليل السريع', 'ms'],
   ['auto_decision_ms', 'قرار AUTO عبر الأسواق', 'ms'], ['agent_run_s', 'تشغيل فريق الوكلاء', 's'],
@@ -489,6 +542,7 @@ $('#reset-paper').addEventListener('click', async () => { await api('/api/execut
   await refresh(); loadChart();
   setInterval(refresh, 3000);
   setInterval(() => { if ($('#v-intel').classList.contains('active')) loadIntel(); }, 5000);
+  setInterval(() => { if ($('#v-pred').classList.contains('active')) loadPred(); }, 10000);
   setInterval(() => { if ($('#v-auto').classList.contains('active')) loadAuto(); if ($('#v-exec').classList.contains('active') && !document.activeElement?.closest('#risk-form')) loadExec(); }, 4000);
   setInterval(() => { if ($('#v-dash').classList.contains('active')) loadChart(); }, 5000);
 })();

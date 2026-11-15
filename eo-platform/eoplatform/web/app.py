@@ -297,6 +297,74 @@ def create_app(settings: Settings, start_services: bool = True) -> FastAPI:
         from ..engine import features as F_
         return {**core.metrics.summary(window), "feature_cache": dict(F_.CACHE_STATS)}
 
+    # ------------------------------------------------------------------ prediction intelligence
+    @app.get("/api/intel")
+    async def intel(u=Depends(user)):
+        """Everything the prediction-intelligence page shows, each item tagged verified/experimental."""
+        from ..engine.model import wilson_lb
+        rows = core.db.all("SELECT decision, status, market, duration, payload FROM signals WHERE source='fast' "
+                           "AND created_at > ?", (time.time() - 7 * 86400,))
+        dist = {"BUY": 0, "SELL": 0, "WAIT": 0}
+        for r in rows:
+            dist[r["decision"]] = dist.get(r["decision"], 0) + 1
+        res = [r for r in rows if r["status"] in ("win", "loss")]
+        acted = [r for r in res if r["decision"] != "WAIT"]
+
+        def acc(rs):
+            n = len(rs)
+            w = sum(1 for r in rs if r["status"] == "win")
+            return {"n": n, "wins": w, "accuracy": w / n if n else None, "ci95": [wilson_lb(w, n), 1 - wilson_lb(n - w, n)]
+                    if n else None, "verified": n >= 30}
+        failed = []
+        for r in core.db.all("SELECT id, created_at, market, duration, candidate, decision, entry_price, exit_price, "
+                             "payload FROM signals WHERE status='loss' ORDER BY id DESC LIMIT 25"):
+            p = json.loads(r.pop("payload") or "{}")
+            r.update(regime=p.get("regime"), signal_class=p.get("signal_class"),
+                     against=[e["agent"] for e in (p.get("evidence_against") or [])][:3],
+                     model_state=(p.get("model_status") or {}).get("state"))
+            failed.append(r)
+        ledger = core.db.all("SELECT id, created_at, market, duration, spec, algo, proposer, trades, accuracy, lb, "
+                             "required, validated, outcome, reasons FROM hypothesis_ledger ORDER BY id DESC LIMIT 60")
+        for r in ledger:
+            r["reasons"] = json.loads(r["reasons"] or "[]")
+        return {
+            "distribution_7d": dist, "live_published": acc(acted), "live_candidates": acc(res),
+            "by_market_duration": stats.performance(core.db, settings.breakeven, since=time.time() - 30 * 86400)
+            ["by_market_duration"],
+            "by_regime": stats.performance(core.db, settings.breakeven, since=time.time() - 30 * 86400)["by_regime"],
+            "failed_predictions": failed, "ledger": ledger,
+            "ledger_total": core.db.one("SELECT count(*) n FROM hypothesis_ledger")["n"],
+            "forward_tests": core.db.all("SELECT * FROM forward_tests ORDER BY id DESC"),
+            "proposals": core.db.all("SELECT id, created_at, proposer, weaknesses, accepted, rejected, secs, error "
+                                     "FROM research_proposals ORDER BY id DESC LIMIT 15"),
+            "champions": [{"id": m["id"], "market": m["market"], "duration": m["duration"],
+                           "algo": json.loads(m["metrics"] or "{}").get("algo"),
+                           "gates": json.loads(m["metrics"] or "{}").get("gates"),
+                           "walk_forward": json.loads(m["metrics"] or "{}").get("walk_forward")}
+                          for m in core.db.all("SELECT * FROM models WHERE status='champion'")],
+            "required_accuracy": settings.breakeven + settings.cost_buffer, "breakeven": settings.breakeven,
+            "exec_delay_s": settings.exec_delay_s, "cost_buffer": settings.cost_buffer,
+            "data_sources": {"providers": core.hub.provider_view(), "quality": core.hub.quality,
+                             "crosscheck": core.db.kv_get("crosscheck_last")},
+        }
+
+    @app.post("/api/forward-tests")
+    async def new_forward_test(request: Request, u=Depends(user)):
+        from ..learning import forward, trainer as T
+        body = await request.json()
+        m = get_market(core.db, str(body.get("market")))
+        d = int(body.get("duration", 0))
+        spec = str(body.get("spec", "base"))
+        if m is None or d not in DURATIONS or spec not in T.SPECS:
+            raise HTTPException(400, "unknown market, duration or spec")
+        try:
+            return await asyncio.get_running_loop().run_in_executor(
+                core.pool, lambda: forward.register(core.db, core.registry, settings, m, d, spec,
+                                                    str(body.get("rationale", ""))[:300],
+                                                    int(body.get("target_n", forward.DEFAULT_TARGET_N))))
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+
     @app.get("/api/auto/board")
     async def auto_board(u=Depends(user)):
         return core.auto.board

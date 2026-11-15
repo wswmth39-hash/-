@@ -35,12 +35,12 @@ const KIND = MARKET.endsWith('_OTC') ? 'otc' : 'regular';
     await page.waitForTimeout(4000);
     const decision = await page.textContent('#r-decision');
     await page.screenshot({path: path.join(OUT, `dashboard_${label}.png`), fullPage: label === 'desktop'});
-    for (const v of ['intel', 'auto', 'exec', 'signals', 'agents', 'perf', 'monitor', 'status', 'settings']) {
+    for (const v of ['pred', 'intel', 'auto', 'exec', 'signals', 'agents', 'perf', 'monitor', 'status', 'settings']) {
       await page.click(`#nav button[data-view=${v}]`);
       await page.waitForTimeout(1500);
       const txt = await page.textContent(`#v-${v}`);
       if (/undefined|NaN|\[object Object\]/.test(txt)) errors.push(`${label}/${v}: bad text rendered`);
-      if (['intel', 'auto', 'exec', 'agents', 'perf', 'status'].includes(v)) await page.screenshot({path: path.join(OUT, `view_${v}_${label}.png`), fullPage: label === 'desktop'});
+      if (['pred', 'intel', 'auto', 'exec', 'agents', 'perf', 'status'].includes(v)) await page.screenshot({path: path.join(OUT, `view_${v}_${label}.png`), fullPage: label === 'desktop'});
     }
     // compare with the device viewport: a widened layout viewport also widens innerWidth
     const overflow = await page.evaluate((w) => document.documentElement.scrollWidth > w + 1 || window.innerWidth > w + 1, ctxOpt.viewport.width);

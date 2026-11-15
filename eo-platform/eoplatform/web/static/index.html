@@ -25,6 +25,7 @@
     <button data-view="dash" class="active">لوحة التداول</button>
     <button data-view="auto">أفضل الفرص (AUTO)</button>
     <button data-view="exec">التنفيذ والمخاطر</button>
+    <button data-view="pred">ذكاء التوقع</button>
     <button data-view="intel">النظام والذكاء</button>
     <button data-view="signals">سجل الإشارات</button>
     <button data-view="agents">نشاط الوكلاء</button>
@@ -113,6 +114,28 @@
       <div class="card"><h2>الصفقات المفتوحة</h2><div class="tablewrap"><table id="open-orders"><thead></thead><tbody></tbody></table></div></div>
       <div class="card"><h2>الصفقات المغلقة والمرفوضة</h2><div class="tablewrap"><table id="closed-orders"><thead></thead><tbody></tbody></table></div></div>
       <div class="card"><h2>سجل التنفيذ</h2><div class="tablewrap"><table id="exec-log"><thead><tr><th>الوقت</th><th>الأمر</th><th>الحدث</th><th>التفاصيل</th></tr></thead><tbody></tbody></table></div></div>
+    </section>
+
+    <!-- PREDICTION INTELLIGENCE -->
+    <section class="view" id="v-pred">
+      <div class="warnbox" id="pred-verdict"></div>
+      <div class="grid g4" id="pred-stats"></div>
+      <div class="grid g2">
+        <div class="card"><h2>الاختبارات المستقبلية المسجّلة مسبقًا</h2>
+          <p class="small muted">فرضية مُجمَّدة تُقيَّم فقط على بيانات تصل بعد تسجيلها حتى عدد صفقات مستقلة ثابت، ثم قرار واحد. النجاح هو الطريق الوحيد لتفعيل مثل هذا النموذج.</p>
+          <div class="tablewrap"><table id="fwd-table"><thead></thead><tbody></tbody></table></div></div>
+        <div class="card"><h2>النماذج الأبطال ونتائج Walk-forward</h2><div id="champ-box" class="small"></div></div>
+      </div>
+      <div class="card"><h2>الأداء حسب السوق والمدة <span class="small muted">(نتائج حقيقية، 30 يومًا)</span></h2>
+        <div class="tablewrap"><table id="pred-md"><thead></thead><tbody></tbody></table></div></div>
+      <div class="card"><h2>سجل الفرضيات والتجارب <span class="small muted" id="ledger-total"></span></h2>
+        <div class="tablewrap"><table id="ledger-table"><thead></thead><tbody></tbody></table></div></div>
+      <div class="grid g2">
+        <div class="card"><h2>مقترحات البحث (Qwen)</h2><div id="proposals" class="small"></div></div>
+        <div class="card"><h2>جودة البيانات والمصادر</h2><div id="data-q" class="small"></div></div>
+      </div>
+      <div class="card"><h2>آخر التوقعات الفاشلة وأسبابها</h2>
+        <div class="tablewrap"><table id="failed-table"><thead></thead><tbody></tbody></table></div></div>
     </section>
 
     <!-- SYSTEM & INTELLIGENCE -->

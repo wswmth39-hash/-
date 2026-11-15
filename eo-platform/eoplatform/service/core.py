@@ -336,6 +336,16 @@ class Core:
                     log.warning("llm keep-alive failed: %s", e)
             await asyncio.sleep(240)
 
+    async def svc_crosscheck(self) -> None:
+        from ..data.providers import crosscheck
+        while True:
+            await asyncio.sleep(300)
+            mk = [m for m in list_markets(self.db, enabled_only=True) if m["kind"] == "regular" and m["reference_symbol"]]
+            try:
+                await asyncio.get_running_loop().run_in_executor(self.pool, crosscheck.run_once, self.db, mk, self.alert)
+            except Exception:
+                log.exception("cross-check failed")
+
     async def svc_forward_tests(self) -> None:
         from ..learning import forward
         while True:
@@ -365,6 +375,8 @@ class Core:
             self.sup.spawn("news_calendar", self.svc_news)
         self.sup.spawn("auto_scanner", self.auto.run)
         self.sup.spawn("forward_tests", self.svc_forward_tests)
+        if self.s.enable_binance:
+            self.sup.spawn("crosscheck", self.svc_crosscheck)
         if self.s.llm_enabled:
             self.sup.spawn("llm_keepalive", self.svc_llm_keepalive)
         self.db.event("info", "service", "بدأ تشغيل المنصة")

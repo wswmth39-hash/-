@@ -83,14 +83,18 @@ def evaluate(db, registry, settings, ft: dict) -> dict:
     n, k = int(sel.sum()), int(hits.sum())
     n_used = min(n, ft["target_n"])                              # fixed sample size: no peeking past it
     k_used = int(hits[:n_used].sum())
-    z = V.z_family(ft["family"])
+    # family = every forward test registered in the ledger window (evaluated at decision time, so
+    # tests registered together are corrected together — found: #1 had stored 1, #2 had stored 2)
+    family = max(ft["family"], db.one("SELECT count(*) n FROM forward_tests WHERE created_at > ?",
+                                      (time.time() - settings.ledger_days * 86400,))["n"])
+    z = V.z_family(family)
     lb = wilson_lb(k_used, n_used, z) if n_used else None
     status, decided = "running", None
     if n_used >= ft["target_n"]:
         status = "passed" if (lb is not None and lb > ft["required"]) else "failed"
         decided = time.time()
         meta = json.loads(row["metrics"] or "{}")
-        meta["forward_result"] = {"n": n_used, "wins": k_used, "acc": k_used / n_used, "lb": lb, "z": z,
+        meta["forward_result"] = {"n": n_used, "wins": k_used, "acc": k_used / n_used, "lb": lb, "z": z, "family": family,
                                   "required": ft["required"], "status": status}
         if status == "passed":
             meta["validated"] = True
