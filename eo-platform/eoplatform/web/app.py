@@ -122,6 +122,18 @@ def create_app(settings: Settings, start_services: bool = True) -> FastAPI:
     async def markets(u=Depends(user)):
         return [_market_view(m) for m in list_markets(core.db)]
 
+    @app.get("/api/markets/availability")
+    async def markets_availability(u=Depends(user)):
+        """Markets that can be analysed now (genuine fresh data) vs. unavailable ones with the reason."""
+        from ..data.quality import split_markets
+        avail, unavail = split_markets(core, list_markets(core.db))
+        return {"available": avail, "unavailable": unavail, "time": time.time()}
+
+    @app.get("/api/data/health")
+    async def data_health(u=Depends(user)):
+        from ..data.quality import health
+        return [health(core.hub, m, src) for (m, src) in sorted(core.hub.series)]
+
     @app.post("/api/markets/{mid}")
     async def update_market(mid: str, request: Request, u=Depends(user)):
         m = get_market(core.db, mid)

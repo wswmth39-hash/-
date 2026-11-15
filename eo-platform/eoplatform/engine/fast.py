@@ -57,11 +57,18 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
                data_age=round(now - rx, 2) if rx else None, entry_price=price, entry_ts=int(now))
     if src != "expertoption":
         sig["warnings"].append("مصدر البيانات مرجعي وليس سعر ExpertOption نفسه؛ قد يختلف السعر قليلًا")
+    from ..data import quality as DQ
+    h = DQ.health(hub, market["id"], src, now)
+    sig["data_health"] = {k: h.get(k) for k in ("last_bar_utc", "age_s", "gaps_last_hour", "longest_gap_s",
+                                                "spikes_last_hour", "recent_spike", "frozen", "degraded")}
 
     bars = hub.bars(market["id"], src, seconds=F.LIVE_CANDLES * P, include_current=False)
     c = resample(bars, P)
     if len(c) and c[-1, 0] + P > (bars[-1, 0] + 1 if len(bars) else 0):
         c = c[:-1]  # drop the still-forming candle
+    if len(c) and c[0, 0] < bars[0, 0]:
+        c = c[1:]   # drop the partially covered first candle: the window start moves every second,
+                    # which made indicator values (and the feature-cache key) change on every call
     if len(c) < F.MIN_CANDLES or not F.contiguous(c, P)[-1]:
         sig["reasons"].append(f"بيانات متصلة غير كافية: يلزم {F.MIN_CANDLES} شمعة متتالية من {P} ثانية")
         if state != "LIVE":
@@ -116,6 +123,10 @@ def analyze(market: dict, duration: int, hub: DataHub, registry: Registry, setti
 
     if state != "LIVE":
         sig["reasons"].insert(0, f"البيانات {STATE_AR[state]} (آخر تحديث قبل {sig['data_age']} ث) — لا إشارة على بيانات غير حية")
+        return done()
+    if h.get("recent_spike"):
+        sig["reasons"].insert(0, "قفزة سعرية غير طبيعية خلال آخر دقيقتين (أكبر من 12 انحرافًا متينًا في ثانية واحدة): حركة عنيفة أو خطأ بيانات — انتظار")
+        ctx["unreliable"] = True
         return done()
     if ev["liquidity"].get("abnormal"):
         sig["reasons"].insert(0, "ظروف تقلب/سيولة غير طبيعية — انتظار")
@@ -194,7 +205,7 @@ def calibration_ok(meta: dict | None) -> tuple[bool, str]:
 
 ABSTAIN_CODES = [("لا توجد بيانات", "no_data"), ("متصلة غير كافية", "insufficient_continuous_data"),
                  ("ليست حية", "data_not_live"), ("لا إشارة على بيانات غير حية", "data_not_live"),
-                 ("مجمّد", "frozen_data"), ("تقلب/سيولة", "abnormal_volatility"), ("هادئ جدًا", "quiet_market"),
+                 ("مجمّد", "frozen_data"), ("قفزة سعرية غير طبيعية", "data_anomaly"), ("تقلب/سيولة", "abnormal_volatility"), ("هادئ جدًا", "quiet_market"),
                  ("خبر اقتصادي", "news_risk"), ("غير مربح تاريخيًا", "regime_blocked"),
                  ("لا يوجد نموذج", "no_validated_model"), ("لم يحقق دقة", "model_not_validated"),
                  ("أقل من العتبة", "below_validated_threshold")]
