@@ -51,8 +51,8 @@ def test_result_text_matches_owner_design_and_is_honest():
     assert t.startswith("📊 السوق : Bitcoin")
     assert "⏱️ الوقت : 30 ثانية" in t                               # strongest was 30s
     assert "🔴 الصفقة : بيع / Sell" in t                             # negative consensus → Sell
-    assert "غير مثبت إحصائيًا" in t and "≈ 50%" in t                # honest measured-accuracy line
-    assert "ليست أسعار ExpertOption" in t and "لا تداول" in t
+    assert "تحليل فقط — غير مضمونة" in t                           # one short honest line, no long text
+    assert t.count(chr(10) + chr(10)) == 3                           # exactly 4 short blocks (market/time/dir/warn)
 
 
 def test_real_analysis_produces_a_direction_on_live_crypto(env):
@@ -89,7 +89,7 @@ def test_image_mode_end_to_end_on_telegram(settings):
         fake.press(OWNER, "sig:BTCUSD")
         r = fake.wait_for(lambda m: "📊 السوق : Bitcoin" in m["text"])
         assert ("شراء / Buy" in r["text"]) or ("بيع / Sell" in r["text"])   # always a direction
-        assert "الوقت :" in r["text"] and "غير مثبت إحصائيًا" in r["text"]
+        assert "الوقت :" in r["text"] and "غير مضمونة" in r["text"]
     finally:
         asyncio.run_coroutine_threadsafe(bot.stop(), loop).result(15)
         loop.call_soon_threadsafe(loop.stop)

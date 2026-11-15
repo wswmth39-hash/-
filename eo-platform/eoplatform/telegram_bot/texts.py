@@ -361,21 +361,13 @@ def sig_result_text(r: dict) -> str:
                 f"⏳ لا تتوفر بيانات حية الآن لهذا السوق (الحالة: {state}).\n"
                 "لا تُعرض إشارة دون بيانات حقيقية حديثة. أعد المحاولة بعد قليل.")
     dir_ar = "🟢 الصفقة : شراء / Buy" if r["direction"] == "BUY" else "🔴 الصفقة : بيع / Sell"
-    lines = [
+    # short output (owner's design): market / time / direction, then one tiny warning line only
+    return "\n\n".join([
         f"📊 السوق : {esc(name)} {emoji}",
-        "",
         f"⏱️ الوقت : {SIG_DUR_AR.get(r['duration'], str(r['duration']) + ' ث')}",
-        "",
         dir_ar,
-    ]
-    age = f"{r['data_age']} ث" if r.get("data_age") is not None else "—"
-    lines += [
-        "",
-        f"<i>السعر المرجعي: {fmt_price(r.get('price'))} (Binance — ليست أسعار ExpertOption) · عمر البيانات {age}</i>",
-        f"<i>⚠️ اتجاه فني غير مثبت إحصائيًا — الدقة المقاسة تاريخيًا لهذا النوع ≈ {r['measured_accuracy'] * 100:.0f}%.</i>",
-        "<i>تحليل فقط، لا تداول. لا ضمان لأي نتيجة.</i>",
-    ]
-    return "\n".join(lines)
+        "<i>⚠️ تحليل فقط — غير مضمونة.</i>",
+    ])
 
 
 def sig_after_keyboard(market_id: str) -> InlineKeyboardMarkup:
