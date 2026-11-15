@@ -18,17 +18,25 @@ class Alerter:
         self._last: dict[str, float] = {}
         self.sent = 0
         self.failed = 0
+        self.sinks: list = []          # extra delivery channels, e.g. Telegram (fn(level, kind, message))
+        self.suppressed = 0
 
     def __call__(self, level: str, kind: str, message: str, data=None) -> None:
         key = f"{kind}:{message}"
         now = time.time()
         if now - self._last.get(key, 0) < 300:
+            self.suppressed += 1
             return
         self._last[key] = now
         self.db.event(level, kind, message, data)
         log.warning("ALERT [%s] %s", kind, message)
         if self.webhook:
             threading.Thread(target=self._post, args=(level, kind, message), daemon=True).start()
+        for sink in list(self.sinks):
+            try:
+                sink(level, kind, message)
+            except Exception as e:          # a broken channel must never break the caller
+                log.warning("alert sink failed: %s", type(e).__name__)
 
     def _post(self, level, kind, message) -> None:
         try:
@@ -42,4 +50,5 @@ class Alerter:
             log.warning("alert webhook failed: %s", e)
 
     def status(self) -> dict:
-        return {"webhook_configured": bool(self.webhook), "sent": self.sent, "failed": self.failed}
+        return {"webhook_configured": bool(self.webhook), "sent": self.sent, "failed": self.failed,
+                "suppressed_duplicates": self.suppressed, "channels": len(self.sinks)}

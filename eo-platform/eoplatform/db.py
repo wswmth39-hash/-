@@ -97,6 +97,17 @@ CREATE TABLE IF NOT EXISTS hypothesis_ledger (
 """
 
 
+# V4 audit: hot query paths without an index (Registry.champion on every analysis, event log, ...)
+INDEXES = [
+    "CREATE INDEX IF NOT EXISTS ix_models_lookup ON models(market, duration, status)",
+    "CREATE INDEX IF NOT EXISTS ix_events_ts ON events(ts)",
+    "CREATE INDEX IF NOT EXISTS ix_events_kind ON events(kind, ts)",
+    "CREATE INDEX IF NOT EXISTS ix_strategy_md ON strategy_results(market, duration, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_ledger_created ON hypothesis_ledger(created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_signals_model ON signals(model_id, created_at)",
+]
+
+
 class DB:
     def __init__(self, path: Path | str):
         self.path = str(path)
@@ -108,6 +119,37 @@ class DB:
         self.conn.execute("PRAGMA foreign_keys=ON")
         with self._lock:
             self.conn.executescript(SCHEMA)
+            for sql in INDEXES:                       # tables created elsewhere may not exist yet
+                try:
+                    self.conn.execute(sql)
+                except sqlite3.OperationalError:
+                    pass
+
+    def ensure_indexes(self) -> None:
+        with self._lock:
+            for sql in INDEXES:
+                try:
+                    self.conn.execute(sql)
+                except sqlite3.OperationalError:
+                    pass
+
+    def backup(self, dest: Path | str) -> Path:
+        """Consistent online copy (SQLite backup API; safe while the platform is running)."""
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(dest.suffix + ".part")
+        out = sqlite3.connect(str(tmp))
+        try:
+            with self._lock:
+                self.conn.backup(out)
+            ok = out.execute("PRAGMA integrity_check").fetchone()[0]
+        finally:
+            out.close()
+        if ok != "ok":
+            tmp.unlink(missing_ok=True)
+            raise RuntimeError(f"backup integrity check failed: {ok}")
+        tmp.replace(dest)
+        return dest
 
     # ---------- generic helpers
     def execute(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:

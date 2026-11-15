@@ -6,7 +6,10 @@ import asyncio
 import json
 import logging
 import os
-import resource
+try:                       # Unix only — `serve` must also start on Windows (V4 audit finding)
+    import resource
+except ImportError:        # pragma: no cover - Windows
+    resource = None
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -28,6 +31,16 @@ from ..markets import ensure_catalog, get_market, list_markets
 log = logging.getLogger("eo.core")
 
 DEFAULT_MONITOR = {"enabled": False, "markets": [], "durations": [60], "interval": 15, "agents": False}
+
+
+def _max_rss_mb() -> float | None:
+    if resource is not None:
+        return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
+    try:                                   # Windows: psutil if installed, otherwise unknown
+        import psutil
+        return round(psutil.Process().memory_info().peak_wset / 2**20, 1)
+    except Exception:
+        return None
 
 
 class Supervisor:
@@ -97,6 +110,8 @@ class Core:
         self.sup: Supervisor | None = None
         self.started = time.time()
         self.telegram = None          # EOTelegramBot once the telegram_bot service has started
+        from .watch import Watcher
+        self.watch = Watcher(self)
         self.agent_activity: list[dict] = []
         self.binance: BinanceProvider | None = None
         self._bg: set[asyncio.Task] = set()  # keep references so background runs aren't GC'd
@@ -296,7 +311,24 @@ class Core:
             if removed:
                 log.info("pruned %d old bars", removed)
             self.db.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            last = self.db.kv_get("last_backup") or {}
+            if time.time() - (last.get("at") or 0) > 24 * 3600:
+                try:
+                    p = await asyncio.get_running_loop().run_in_executor(self.pool, self.backup_now)
+                    log.info("daily backup written: %s", p.name)
+                except Exception as e:
+                    self.alert("critical", "backup", f"فشل النسخ الاحتياطي اليومي لقاعدة البيانات: {type(e).__name__}")
             await asyncio.sleep(3600)
+
+    def backup_now(self, keep: int = 7):
+        """Online backup into <home>/backups, keeping the newest ``keep`` files."""
+        d = self.s.home / "backups"
+        p = self.db.backup(d / time.strftime("eoplatform-%Y%m%d-%H%M%S.db", time.gmtime()))
+        old = sorted(d.glob("eoplatform-*.db"))[:-keep]
+        for f in old:
+            f.unlink(missing_ok=True)
+        self.db.kv_set("last_backup", {"at": time.time(), "file": p.name, "bytes": p.stat().st_size})
+        return p
 
     async def svc_binance(self) -> None:
         mk = [m for m in list_markets(self.db, enabled_only=True) if m["kind"] == "regular" and m["reference_symbol"]]
@@ -338,8 +370,21 @@ class Core:
             await asyncio.sleep(240)
 
     async def svc_telegram(self) -> None:
-        """Telegram bot inside the platform process (same Core, DB, engine). Long polling only."""
+        """Telegram bot inside the platform process (same Core, DB, engine). Long polling only.
+        A file lock guarantees ONE polling copy per data folder on this machine (a second
+        `serve` started by mistake does not start the bot); copies on OTHER machines are detected
+        through Telegram's 409 Conflict (see bot.on_poll_error)."""
         from ..telegram_bot.bot import EOTelegramBot
+        from .lock import FileLock
+        if getattr(self, "_tg_lock", None) is None or not self._tg_lock.held:
+            self._tg_lock = FileLock(self.s.home / "telegram_bot.lock")
+            if not self._tg_lock.acquire():
+                self._tg_lock = None
+                self.alert("critical", "telegram", "نسخة أخرى من المنصة على هذا الجهاز تشغّل بوت Telegram بالفعل "
+                                                   "(ملف القفل telegram_bot.lock محجوز) — لم يُشغَّل البوت في هذه النسخة")
+                self.telegram_blocked = True
+                while True:                            # stay idle (supervised, no restart loop)
+                    await asyncio.sleep(3600)
         bot = EOTelegramBot(self, self.s.telegram_token, set(self.s.telegram_allowed),
                             base_url=self.s.telegram_api_url or None)
         self.telegram = bot
@@ -350,6 +395,17 @@ class Core:
                 bot.tick()             # reports when a 409 polling conflict has ended
         finally:
             await bot.stop()
+
+    async def svc_watch(self) -> None:
+        """Smart alerts: state transitions only (see service/watch.py)."""
+        from .watch import INTERVAL
+        await asyncio.sleep(INTERVAL)
+        while True:
+            try:
+                await asyncio.get_running_loop().run_in_executor(self.pool, self.watch.run_once)
+            except Exception:
+                log.exception("alert watcher failed")
+            await asyncio.sleep(INTERVAL)
 
     async def svc_crosscheck(self) -> None:
         from ..data.providers import crosscheck
@@ -391,6 +447,7 @@ class Core:
             self.sup.spawn("news_calendar", self.svc_news)
         self.sup.spawn("auto_scanner", self.auto.run)
         self.sup.spawn("forward_tests", self.svc_forward_tests)
+        self.sup.spawn("alert_watch", self.svc_watch)
         if self.s.telegram_token:
             if not self.s.telegram_allowed:
                 self.db.event("warning", "telegram", "EO_TELEGRAM_ALLOWED_USERS فارغ: البوت سيرفض كل المستخدمين")
@@ -408,11 +465,12 @@ class Core:
         self.pool.shutdown(wait=True, cancel_futures=True)
         self.signal_pool.shutdown(wait=True, cancel_futures=True)
         self.db.event("info", "service", "إيقاف آمن للمنصة")
+        if getattr(self, "_tg_lock", None) is not None:
+            self._tg_lock.release()
         self.db.close()
 
     # ------------------------------------------------------------------ health
     def health(self) -> dict:
-        usage = resource.getrusage(resource.RUSAGE_SELF)
         db_size = sum(os.path.getsize(p) for p in (self.s.db_path, f"{self.s.db_path}-wal") if os.path.exists(p))
         services = self.sup.status if self.sup else {}
         bad = [n for n, st in services.items() if st["state"] != "running"]
@@ -426,7 +484,9 @@ class Core:
             "llm": {k: v for k, v in self.llm.health().items() if k != "models"} | {"model": self.s.llm_model},
             "monitor_heartbeat": self.db.kv_get("monitor_heartbeat"),
             "telegram": (self.telegram.state() if self.telegram is not None
-                         else {"enabled": bool(self.s.telegram_token), "polling": False}),
-            "resources": {"max_rss_mb": round(usage.ru_maxrss / 1024, 1), "db_mb": round(db_size / 2**20, 2),
+                         else {"enabled": bool(self.s.telegram_token), "polling": False,
+                               "blocked_by_lock": bool(getattr(self, "telegram_blocked", False))}),
+            "backup": self.db.kv_get("last_backup"),
+            "resources": {"max_rss_mb": _max_rss_mb(), "db_mb": round(db_size / 2**20, 2),
                           "disk_free_mb": round(shutil.disk_usage(self.s.home).free / 2**20)},
         }

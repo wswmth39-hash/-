@@ -240,7 +240,8 @@ def test_group_and_channel_messages_are_ignored_without_any_reply(running):
         fake.command(STRANGER, "/start", chat=chat)         # and a stranger's ID is not leaked there
         fake.text(OWNER, "btc", chat=chat)
     fake.press(OWNER, "an:BTCUSD", chat=GROUP)
-    assert _wait(lambda: bot.ignored_non_private >= 7, 20)   # condition-based: no fixed sleep under load
+    assert _wait(lambda: bot.ignored_non_private >= 10, 20)  # all 10 group updates seen (condition-based)
+    assert _wait(lambda: any("المحادثات الخاصة فقط" in a.get("text", "") for a in fake.answers), 20)
     time.sleep(0.5)
     assert all(m["chat_id"] > 0 for m in fake.sent)          # nothing ever sent to a group/channel id
     assert not [m for m in fake.sent if m["method"] == "sendMessage"]
@@ -324,7 +325,7 @@ def test_dashboard_health_has_telegram_state_without_secrets(settings):
     from fastapi.testclient import TestClient
     settings.telegram_token, settings.telegram_allowed = TOKEN, (OWNER,)
     core = Core(settings)
-    assert core.health()["telegram"] == {"enabled": True, "polling": False}   # configured, not started yet
+    assert core.health()["telegram"] == {"enabled": True, "polling": False, "blocked_by_lock": False}   # not started yet
     core.telegram = EOTelegramBot(core, TOKEN, {OWNER}, base_url="http://127.0.0.1:9/bot")
     core.telegram.on_poll_error(__import__("telegram.error", fromlist=["Conflict"]).Conflict("x"))
     h = core.health()

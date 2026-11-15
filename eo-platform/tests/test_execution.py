@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from eoplatform.execution.brokers import BrokerUnavailable, ExpertOptionBroker
+from eoplatform.execution import brokers as B
 from eoplatform.execution.engine import ExecutionEngine
 from eoplatform.service.alerts import Alerter
 
@@ -35,12 +35,12 @@ def test_analysis_mode_sends_nothing(ex):
     assert ex.db.one("SELECT count(*) n FROM orders")["n"] == 0
 
 
-def test_live_mode_cannot_be_enabled_and_eo_broker_refuses(ex):
-    with pytest.raises(ValueError):
+def test_real_money_execution_is_out_of_scope(ex):
+    with pytest.raises(ValueError, match="outside the scope"):
         ex.set_config({"mode": "live"})
-    with pytest.raises(BrokerUnavailable):
-        ExpertOptionBroker().submit({})
-    assert ExpertOptionBroker().status()["available"] is False
+    assert not hasattr(B, "ExpertOptionBroker")                       # no real broker adapter exists at all
+    assert [b["name"] for b in ex.brokers()] == ["paper", "real_money"]
+    assert ex.brokers()[1]["available"] is False
 
 
 def test_paper_order_lifecycle_and_idempotency(ex):

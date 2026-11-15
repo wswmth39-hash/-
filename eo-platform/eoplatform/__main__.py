@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 
 def cmd_serve(a):
@@ -30,6 +31,10 @@ def cmd_serve(a):
     from .logging_setup import setup
     from .web.app import create_app
     s = load_settings(a.env)
+    from .service.lock import FileLock
+    lock = FileLock(s.home / "serve.lock")     # one platform per data folder; restore refuses while held
+    if not lock.acquire():
+        sys.exit(f"another eoplatform instance is already running with {s.home} — stop it first")
     setup(s.log_dir)
     app = create_app(s)
     uvicorn.run(app, host=a.host or s.host, port=a.port or s.port, log_config=None, timeout_graceful_shutdown=15,
@@ -108,6 +113,45 @@ def cmd_check_system(a):
                              "tight: 9B Q4 needs ~7 GB for weights; close other apps or use a smaller tag" if ram >= 10
                              else "insufficient RAM for 9B; use qwen3.5:4b or smaller and set EO_LLM_MODEL")
     print(json.dumps(rep, indent=2, ensure_ascii=False))
+
+
+def cmd_backup(a):
+    """Consistent online backup of the database (safe while `serve` is running)."""
+    from .config import load_settings
+    from .db import DB
+    s = load_settings(a.env)
+    out = Path(a.out) if a.out else s.home / "backups" / time.strftime("eoplatform-%Y%m%d-%H%M%S.db", time.gmtime())
+    p = DB(s.db_path).backup(out)
+    print(json.dumps({"backup": str(p), "bytes": p.stat().st_size, "integrity": "ok"}, ensure_ascii=False))
+
+
+def cmd_restore(a):
+    """Replace the database with a backup. Refuses while the platform is running (lock held)."""
+    import shutil
+    import sqlite3
+    from .config import load_settings
+    from .service.lock import FileLock
+    s = load_settings(a.env)
+    src = Path(a.file)
+    if not src.exists():
+        sys.exit(f"backup not found: {src}")
+    ok = sqlite3.connect(f"file:{src}?mode=ro", uri=True).execute("PRAGMA integrity_check").fetchone()[0]
+    if ok != "ok":
+        sys.exit(f"refusing: backup failed integrity check ({ok})")
+    lock = FileLock(s.home / "serve.lock")
+    if not lock.acquire():
+        sys.exit("refusing: the platform is running — stop `serve` first")
+    try:
+        if Path(s.db_path).exists():
+            keep = Path(s.db_path).with_suffix(time.strftime(".before-restore-%Y%m%d-%H%M%S.db", time.gmtime()))
+            shutil.copy2(s.db_path, keep)
+            print(f"previous database kept as {keep.name}")
+        for ext in ("-wal", "-shm"):
+            Path(f"{s.db_path}{ext}").unlink(missing_ok=True)
+        shutil.copy2(src, s.db_path)
+        print(json.dumps({"restored_from": str(src), "db": str(s.db_path)}, ensure_ascii=False))
+    finally:
+        lock.release()
 
 
 def cmd_check_sources(a):
@@ -218,6 +262,8 @@ def main():
     sp = sub.add_parser("bridge-token"); sp.add_argument("--label", default="bridge"); sp.set_defaults(f=cmd_bridge_token)
     sub.add_parser("check-system").set_defaults(f=cmd_check_system)
     sub.add_parser("check-sources").set_defaults(f=cmd_check_sources)
+    sp = sub.add_parser("backup"); sp.add_argument("--out", default=""); sp.set_defaults(f=cmd_backup)
+    sp = sub.add_parser("restore"); sp.add_argument("file"); sp.set_defaults(f=cmd_restore)
     sub.add_parser("telegram-check").set_defaults(f=cmd_telegram_check)
     sp = sub.add_parser("import-csv"); sp.add_argument("file"); sp.add_argument("--market", required=True)
     sp.add_argument("--source", required=True, choices=["expertoption", "binance", "import"]); sp.set_defaults(f=cmd_import_csv)

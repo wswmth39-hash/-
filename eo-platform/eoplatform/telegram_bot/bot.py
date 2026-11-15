@@ -74,6 +74,10 @@ class EOTelegramBot:
         self.last_error_at: float | None = None
         self.ignored_non_private = 0
         self.groups_left = 0
+        self.alerts_sent = 0
+        self.alerts_dropped = 0
+        self._alert_times: list[float] = []
+        self._loop = None
         # real-traffic evidence (counts only — no user IDs, chat IDs or message text)
         self.updates_handled = 0
         self.replies_ok: dict[str, int] = {}     # handler name → handled and answered without error
@@ -319,6 +323,33 @@ class EOTelegramBot:
             except TelegramError as e:
                 log.warning("leave_chat failed: %s", type(e).__name__)
 
+    # ------------------------------------------------------------------ alerts → Telegram
+    ALERT_LEVELS = ("critical", "alert")
+    ALERTS_PER_HOUR = 20
+
+    def push_alert(self, level: str, kind: str, message: str) -> None:
+        """Alerter sink (may be called from any thread). Private chats of allowed users only,
+        important levels only, at most ALERTS_PER_HOUR (on top of the Alerter's 5-min de-duplication)."""
+        if level not in self.ALERT_LEVELS or not self.allowed or self._loop is None or self._loop.is_closed():
+            return
+        now = time.time()
+        self._alert_times = [t for t in self._alert_times if now - t < 3600]
+        if len(self._alert_times) >= self.ALERTS_PER_HOUR:
+            self.alerts_dropped += 1
+            return
+        self._alert_times.append(now)
+        icon = "🔴" if level == "critical" else "🔔"
+        text = f"{icon} <b>تنبيه {T.esc(T.BOT_NAME)}</b>\n{T.esc(message)}"
+
+        async def send():
+            for uid in self.allowed:
+                try:
+                    await self.app.bot.send_message(uid, text, parse_mode=ParseMode.HTML)
+                    self.alerts_sent += 1
+                except TelegramError as e:
+                    log.warning("alert delivery failed: %s", type(e).__name__)
+        self._loop.call_soon_threadsafe(lambda: self._loop.create_task(send()))
+
     # ------------------------------------------------------------------ polling health
     def on_poll_error(self, exc: TelegramError) -> None:
         """PTB polling error callback (sync, runs on the bot's event loop). Never re-raises."""
@@ -357,6 +388,7 @@ class EOTelegramBot:
                 "last_error": self.last_error, "last_error_at": self.last_error_at,
                 "error_active": bool(self.last_error_at and now - self.last_error_at < ERROR_WINDOW_S),
                 "ignored_non_private": self.ignored_non_private, "groups_left": self.groups_left,
+                "alerts_sent": self.alerts_sent, "alerts_dropped_rate_limit": self.alerts_dropped,
                 "updates_handled": self.updates_handled, "replies_ok": dict(self.replies_ok), "denied": self.denied,
                 "last_update_at": self.last_update_at}
 
@@ -371,6 +403,10 @@ class EOTelegramBot:
         await self.app.updater.start_polling(drop_pending_updates=True, error_callback=self.on_poll_error,
                                              allowed_updates=["message", "callback_query", "my_chat_member"])
         self.polling = True
+        import asyncio
+        self._loop = asyncio.get_running_loop()
+        if getattr(self.core.s, "telegram_alerts", True) and self.push_alert not in self.core.alert.sinks:
+            self.core.alert.sinks.append(self.push_alert)
         me = self.username = self.app.bot.username
         self.core.db.event("info", "telegram", f"بوت Telegram متصل باسم @{me} (استطلاع طويل، محادثات خاصة فقط، "
                                                "لا يُكشف أي منفذ)")
@@ -380,6 +416,8 @@ class EOTelegramBot:
 
     async def stop(self) -> None:
         self.polling = False
+        if self.push_alert in getattr(self.core.alert, "sinks", []):
+            self.core.alert.sinks.remove(self.push_alert)
         try:
             if self.app.updater and self.app.updater.running:
                 await self.app.updater.stop()

@@ -38,7 +38,7 @@ function table(el, head, rows) {
 $$('#nav button').forEach((b) => b.addEventListener('click', () => {
   $$('#nav button').forEach((x) => x.classList.toggle('active', x === b));
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === 'v-' + b.dataset.view));
-  ({pred: loadPred, intel: loadIntel, auto: loadAuto, exec: loadExec, signals: loadSignals, agents: loadAgents, perf: loadPerf, monitor: loadMonitor, status: loadStatus, settings: loadSettings}[b.dataset.view] || (() => {}))(true);
+  ({smart: loadSmart, pred: loadPred, intel: loadIntel, auto: loadAuto, exec: loadExec, signals: loadSignals, agents: loadAgents, perf: loadPerf, monitor: loadMonitor, status: loadStatus, settings: loadSettings}[b.dataset.view] || (() => {}))(true);
 }));
 $('#theme').addEventListener('click', () => {
   const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
@@ -336,6 +336,39 @@ $('#mon-save').addEventListener('click', async () => {
   toast(c.enabled ? `المراقبة مفعّلة على ${c.markets.length} سوق` : 'المراقبة متوقفة');
 });
 
+// ---------------------------------------------------------------- SMART ENGINE (V4)
+const WAIT_AR = {no_data: 'لا بيانات', insufficient_continuous_data: 'بيانات غير كافية', data_not_live: 'بيانات غير حية',
+  data_anomaly: 'قفزة سعرية', abnormal_volatility: 'تقلب غير طبيعي', quiet_market: 'سوق هادئ', frozen_data: 'سعر مجمّد',
+  news_risk: 'خبر قريب', no_validated_model: 'لا نموذج متحقق منه', model_not_validated: 'نموذج دون التعادل',
+  regime_blocked: 'نظام سوق محجوب', out_of_distribution: 'حالة غير مألوفة', below_validated_threshold: 'قوة أقل من العتبة',
+  non_positive_edge: 'عائد متوقع غير موجب', other: 'أخرى'};
+const DEC_AR = {BUY: 'شراء', SELL: 'بيع', WAIT: 'انتظار'};
+async function loadSmart() {
+  const [av, sc, md] = await Promise.all([api('/api/markets/availability'), api('/api/scanner'), api('/api/models/summary')]);
+  const st = sc.stats;
+  $('#smart-cards').innerHTML =
+    `<div class="card"><h2>${dot(av.available.length ? 'ok' : 'bad')} أسواق متاحة</h2><div class="big">${esc(av.available.length)}</div><div class="small muted">من ${esc(av.available.length + av.unavailable.length)} سوقًا مفعّلًا</div></div>` +
+    `<div class="card"><h2>${dot(md.champions ? 'ok' : 'warn')} نماذج معتمدة</h2><div class="big">${esc(md.champions)}</div><div class="small muted">فرضيات اختُبرت ${esc(md.hypotheses_tested)} · اجتازت ${esc(md.hypotheses_validated)}</div></div>` +
+    `<div class="card"><h2>${dot(st.qualified_cycles ? 'ok' : 'warn')} دورات بفرصة مؤهلة</h2><div class="big">${esc(st.qualified_cycles)}</div><div class="small muted">من ${esc(st.cycles)} دورة · ${esc(st.evaluations)} تحليلًا</div></div>`;
+  table('#smart-avail', null, av.available.map((a) => `<tr><td>${esc(a.name_ar || a.name)} <span class="muted small ltr">${esc(a.market)}</span></td><td>${esc(SRC[a.source] || a.source)}</td><td class="ltr small">${esc(a.health?.last_bar_utc)}</td><td>${esc(a.health?.age_s)}</td><td>${esc(a.health?.gaps_last_hour)}</td><td>${esc(a.health?.spikes_last_hour)}</td></tr>`));
+  table('#smart-unavail', null, av.unavailable.map((u) => `<tr><td>${esc(u.name_ar || u.name)} <span class="muted small ltr">${esc(u.market)}</span></td><td>${u.kind === 'otc' ? 'OTC' : 'عادي'}</td><td class="small">${esc(u.reason_ar)}</td></tr>`));
+  table('#smart-wait', null, Object.entries(st.wait_reasons || {}).map(([k, v]) => `<tr><td>${esc(WAIT_AR[k] || k)}</td><td>${esc(v)}</td></tr>`));
+  $('#smart-scanner').innerHTML = `الدورات: ${esc(st.cycles)} · التحليلات: ${esc(st.evaluations)} · دورات بفرصة مؤهلة: ${esc(st.qualified_cycles)} (${esc(st.qualified_rate == null ? '—' : (st.qualified_rate * 100).toFixed(2) + '%')})<br>آخر دورة: ${esc(fmtT(st.last_cycle_at))} · آخر فرصة مؤهلة: ${esc(st.last_qualified_at ? fmtT(st.last_qualified_at) : 'لا يوجد')}<br>آخر قرار للمسح التلقائي: ${esc(sc.board?.why || '—')}`;
+  $('#smart-models-sum').textContent = 'الأعداد: ' + Object.entries(md.counts_ar).map(([k, v]) => `${k} ${v}`).join('، ');
+  table('#smart-models', null, md.recent.slice(0, 20).map((m) => `<tr><td>${esc(m.id)}</td><td>${esc(m.market)}</td><td>${esc(m.duration)}</td><td>${esc(m.status_ar)}</td><td>${esc(m.independent_oos_trades ?? '—')}</td><td>${esc(m.oos_accuracy == null ? '—' : pct(m.oos_accuracy))}</td><td>${esc(m.oos_lower_bound == null ? '—' : pct(m.oos_lower_bound))}</td><td>${esc(m.required_accuracy == null ? '—' : pct(m.required_accuracy))}</td><td class="small">${esc((m.reasons || []).join('؛ ') || m.note || '')}</td></tr>`));
+}
+$('#smart-scan').addEventListener('click', async () => {
+  $('#smart-scan-msg').textContent = 'جارٍ الفحص…';
+  const r = await api('/api/scanner/scan', {method: 'POST'});
+  $('#smart-scan-msg').textContent = r.best ? `أفضل فرصة مؤهلة: ${r.best.market} ${DEC_AR[r.best.decision]} ${r.best.horizon} ث` : `${r.message} — ${r.evaluations} تحليلًا في ${r.scan_ms} ms`;
+  table('#smart-decisions', null, r.decisions.map((d) => {
+    const h = Object.fromEntries(d.horizons.map((x) => [x.duration, x]));
+    const cell = (k) => h[k] ? `<td title="${esc(h[k].reason_ar)}">${esc(DEC_AR[h[k].decision])}</td>` : '<td>—</td>';
+    return `<tr><td>${esc(d.market)}</td><td><b>${esc(DEC_AR[d.decision])}</b></td><td>${esc(d.horizon ? d.horizon + ' ث' : '—')}</td>${cell(30)}${cell(60)}${cell(120)}${cell(300)}<td class="small">${esc(d.reason)}</td></tr>`;
+  }));
+  loadSmart();
+});
+
 // Telegram polling health → [pill text, dot class, tooltip, card body]. Never contains the token.
 function tgView(tg) {
   const name = '@' + (tg.username || tg.expected_username || 'EO_PredictorBot');
@@ -523,7 +556,7 @@ const ORDER_HEAD = ['#', 'الوقت', 'الوضع', 'السوق', 'المدة',
 async function loadExec() {
   const [ex, open, all, lg] = await Promise.all([api('/api/execution'), api('/api/orders?status=open'), api('/api/orders?limit=100'), api('/api/execution/log?limit=80')]);
   $$('#mode-seg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === ex.config.mode));
-  $('#brokers').innerHTML = ex.brokers.map((b) => `<div class="${b.available ? 'okbox' : 'warnbox'}"><b>${b.name === 'paper' ? 'الوسيط التجريبي' : 'ExpertOption (حقيقي)'}:</b> ${esc(b.detail)}${b.terms_url ? ` <a href="${esc(b.terms_url)}" target="_blank" rel="noopener">الشروط</a>` : ''}</div>`).join('');
+  $('#brokers').innerHTML = ex.brokers.map((b) => `<div class="${b.available ? 'okbox' : 'warnbox'}"><b>${b.name === 'paper' ? 'الوسيط التجريبي' : 'التنفيذ الحقيقي'}:</b> ${esc(b.detail)}${b.terms_url ? ` <a href="${esc(b.terms_url)}" target="_blank" rel="noopener">الشروط</a>` : ''}</div>`).join('');
   const st = ex.state;
   $('#exec-state').innerHTML = (st.kill_switch ? '<div class="warnbox">⛔ الإيقاف الطارئ مفعّل</div>' : '') + (st.halted ? `<div class="warnbox">التداول موقوف: ${esc(st.halt_reason)}</div>` : '');
   if (!$('#risk-form').dataset.filled || document.activeElement?.closest('#risk-form') == null) {

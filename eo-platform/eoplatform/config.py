@@ -68,6 +68,7 @@ class Settings:
     telegram_token: str = ""        # EO_TELEGRAM_TOKEN (from BotFather) — never logged, never sent to browsers
     telegram_allowed: tuple = ()    # EO_TELEGRAM_ALLOWED_USERS — numeric Telegram user IDs; empty = nobody
     telegram_api_url: str = ""      # override only for tests (local fake Bot API server)
+    telegram_alerts: bool = True    # EO_TELEGRAM_ALERTS — push important alerts to the allowed users
     retention_days: int = 30
     # --- freshness thresholds (seconds since last genuine update)
     live_max_age: float = 3.0
@@ -155,6 +156,7 @@ def load_settings(env_file: str | None = None) -> Settings:
         telegram_allowed=tuple(int(x) for x in os.environ.get("EO_TELEGRAM_ALLOWED_USERS", "").replace(" ", "").split(",")
                                if x.lstrip("-").isdigit()),
         telegram_api_url=os.environ.get("EO_TELEGRAM_API_URL", ""),
+        telegram_alerts=_b("EO_TELEGRAM_ALERTS", True),
         retention_days=_i("EO_RETENTION_DAYS", 30),
         live_max_age=_f("EO_LIVE_MAX_AGE", 3.0),
         delayed_max_age=_f("EO_DELAYED_MAX_AGE", 10.0),

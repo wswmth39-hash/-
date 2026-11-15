@@ -14,7 +14,7 @@ import time
 
 from ..db import DB
 from ..engine.model import wilson_lb
-from .brokers import ExpertOptionBroker, PaperBroker
+from .brokers import OUT_OF_SCOPE, PaperBroker
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS orders (
@@ -57,7 +57,6 @@ class ExecutionEngine:
         with db._lock:
             db.conn.executescript(SCHEMA)
         self.paper = PaperBroker(hub, settings.live_max_age)
-        self.eo = ExpertOptionBroker()
         if db.kv_get("exec_state") is None:
             db.kv_set("exec_state", {"halted": False, "halt_reason": None, "kill_switch": False,
                                      "paper_balance": DEFAULT_RISK["paper_initial_balance"]})
@@ -73,7 +72,7 @@ class ExecutionEngine:
                 continue
             if k == "mode":
                 if v not in ("analysis", "paper"):
-                    raise ValueError("live mode is unavailable: no permitted ExpertOption trading integration")
+                    raise ValueError("real-money execution is outside the scope of this project")
                 cur[k] = v
             elif k in ("markets", "durations"):
                 cur[k] = [int(x) if k == "durations" else str(x) for x in v][:50]
@@ -290,4 +289,4 @@ class ExecutionEngine:
             self.alert("critical", "execution", f"إيقاف تلقائي للتداول: {reason}")
 
     def brokers(self) -> list[dict]:
-        return [self.paper.status(), self.eo.status()]
+        return [self.paper.status(), dict(OUT_OF_SCOPE)]

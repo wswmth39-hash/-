@@ -4,18 +4,10 @@ PaperBroker — simulated execution on GENUINE live prices. "Confirmed" means th
 paper broker accepted the order at a live price it could verify at submission
 time (data fresher than EO_LIVE_MAX_AGE). It is labelled paper everywhere.
 
-ExpertOptionBroker — deliberately NOT implemented:
-  * ExpertOption publishes no trading API (checked 2026-11-14: /api and /developers
-    return 404; no developer documentation exists).
-  * ExpertOption's Terms & Conditions §6.2 (read from expertoption.com on
-    2026-11-14) prohibit "any implantations to the client–server relationship ...
-    the use of automated players (also known as 'bots')", with account blocking,
-    cancelled payments and seized funds.
-  Automating real orders would therefore require either an unofficial protocol
-  client or UI automation — both forbidden by the platform. The adapter exists so
-  the UI can show the reason, and so an official API could be plugged in if
-  ExpertOption ever provides one (it would have to confirm each order, see
-  ``Confirmation`` below).
+Real-money execution is OUTSIDE THE SCOPE of this project (V4 decision): there is no real
+broker adapter, no "live" mode and no code path that could place a financial order.
+Background: ExpertOption publishes no trading API (checked 2026-11-14), and its Terms &
+Conditions §6.2 prohibit bots and any interference with the client–server relationship.
 """
 from __future__ import annotations
 
@@ -25,8 +17,10 @@ from dataclasses import dataclass
 EO_TERMS_URL = "https://expertoption.com/company/policy/terms/"
 
 
-class BrokerUnavailable(Exception):
-    pass
+OUT_OF_SCOPE = {"name": "real_money", "available": False, "live_money": True,
+                "detail": "التنفيذ المالي الحقيقي خارج نطاق هذا المشروع: لا يوجد وسيط حقيقي ولا وضع حقيقي في الكود. "
+                          "(ExpertOption لا توفر واجهة تداول، وشروطها البند 6.2 تحظر الروبوتات.)",
+                "terms_url": EO_TERMS_URL}
 
 
 @dataclass
@@ -55,17 +49,3 @@ class PaperBroker:
         if price is None or rx is None or now - rx > self.live_max_age:
             return Confirmation(False, None, None, None, "لا يوجد سعر حي يمكن التحقق منه لحظة الإرسال")
         return Confirmation(True, f"paper-{order['id']}", price, now)
-
-
-class ExpertOptionBroker:
-    name = "expertoption"
-    live = True
-
-    def status(self) -> dict:
-        return {"name": self.name, "available": False, "live_money": True,
-                "detail": ("غير متاح: لا توجد واجهة تداول رسمية من ExpertOption، وشروطها (البند 6.2) تحظر "
-                           "الروبوتات وأي تدخل في الاتصال بين العميل والخادم، مع حظر الحساب ومصادرة الأموال."),
-                "terms_url": EO_TERMS_URL}
-
-    def submit(self, order: dict, now: float | None = None) -> Confirmation:
-        raise BrokerUnavailable(self.status()["detail"])

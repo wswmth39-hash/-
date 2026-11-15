@@ -24,6 +24,7 @@
 <div class="layout">
   <nav class="side" id="nav">
     <button data-view="dash" class="active">لوحة التداول</button>
+    <button data-view="smart">المحرك الذكي</button>
     <button data-view="auto">أفضل الفرص (AUTO)</button>
     <button data-view="exec">التنفيذ والمخاطر</button>
     <button data-view="pred">ذكاء التوقع</button>
@@ -98,7 +99,7 @@
       <div class="grid g2">
         <div class="card">
           <h2>وضع التنفيذ</h2>
-          <div class="seg" id="mode-seg"><button data-mode="analysis">تحليل فقط</button><button data-mode="paper">تداول تجريبي (ورقي)</button><button data-mode="live" disabled title="غير متاح">حقيقي — غير متاح</button></div>
+          <div class="seg" id="mode-seg"><button data-mode="analysis">تحليل فقط</button><button data-mode="paper">تداول تجريبي (ورقي)</button><button disabled title="خارج نطاق المشروع">حقيقي — خارج نطاق المشروع</button></div>
           <div id="brokers" class="small"></div>
           <p></p>
           <button class="btn danger big" id="kill">⛔ إيقاف طارئ</button>
@@ -198,6 +199,23 @@
         <h3>الأسواق</h3><div class="row" id="mon-markets"></div>
         <p></p><button class="btn" id="mon-save">حفظ</button> <span class="small muted" id="mon-hb"></span>
       </div>
+    </section>
+
+    <!-- SMART ENGINE (V4) -->
+    <section class="view" id="v-smart">
+      <div class="grid g3" id="smart-cards"></div>
+      <div class="card"><h2>AUTO SCANNER — فحص فوري للأسواق المتاحة</h2>
+        <p class="small muted">تحليل فقط، لا تنفيذ. يعرض أفضل فرصة اجتازت كل الشروط، أو «لا توجد فرصة مؤهلة حاليًا». كثرة الإشارات ليست نجاحًا.</p>
+        <div class="row"><button class="btn" id="smart-scan">تشغيل الفحص الآن</button><span id="smart-scan-msg" class="small"></span></div>
+        <div class="tablewrap"><table id="smart-decisions"><thead><tr><th>السوق</th><th>القرار</th><th>المدة</th><th>30ث</th><th>60ث</th><th>120ث</th><th>300ث</th><th>السبب</th></tr></thead><tbody></tbody></table></div></div>
+      <div class="grid g2">
+        <div class="card"><h2>أسباب الانتظار (منذ التشغيل)</h2><div class="tablewrap"><table id="smart-wait"><thead><tr><th>السبب</th><th>العدد</th></tr></thead><tbody></tbody></table></div></div>
+        <div class="card"><h2>إحصائيات AUTO SCANNER</h2><div id="smart-scanner" class="small"></div></div>
+      </div>
+      <div class="card"><h2>الأسواق المتاحة (بيانات حقيقية حية)</h2><div class="tablewrap"><table id="smart-avail"><thead><tr><th>السوق</th><th>المصدر</th><th>آخر شمعة</th><th>العمر (ث)</th><th>فجوات/ساعة</th><th>قفزات/ساعة</th></tr></thead><tbody></tbody></table></div></div>
+      <div class="card"><h2>الأسواق غير المتاحة وسبب ذلك</h2><div class="tablewrap"><table id="smart-unavail"><thead><tr><th>السوق</th><th>النوع</th><th>السبب</th></tr></thead><tbody></tbody></table></div></div>
+      <div class="card"><h2>النماذج ونتائج التحقق</h2><div id="smart-models-sum" class="small"></div>
+        <div class="tablewrap"><table id="smart-models"><thead><tr><th>#</th><th>السوق</th><th>المدة</th><th>الحالة</th><th>صفقات مستقلة</th><th>الدقة</th><th>الحد الأدنى</th><th>المطلوب</th><th>أسباب القبول/الرفض</th></tr></thead><tbody></tbody></table></div></div>
     </section>
 
     <!-- STATUS -->
