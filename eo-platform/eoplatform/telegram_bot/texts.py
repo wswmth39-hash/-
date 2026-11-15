@@ -344,8 +344,9 @@ SIG_WELCOME = "📊 اختر السوق المُراد تحليله:"
 # ExpertOption-only / stocks / OTC with NO legitimate external feed — shown for the exact look,
 # and pressing them says so honestly, never a fabricated buy/sell.
 SIG_MENU = [
-    ("Football Index", "⚽", ""), ("Smarty", "🧠", ""), ("USD/NGN (OTC)", "🇳🇬", ""),
-    ("EUR/USD (OTC)", "🇪🇺", ""), ("GBP/USD (OTC)", "🇬🇧", ""), ("USD/JPY (OTC)", "🇯🇵", ""),
+    ("Smarty", "🧠", ""), ("EUR/USD (OTC)", "🇪🇺", ""),
+    ("Football Index", "⚽", ""), ("USD/NGN (OTC)", "🇳🇬", ""),
+    ("GBP/USD (OTC)", "🇬🇧", ""), ("USD/JPY (OTC)", "🇯🇵", ""),
     ("Gold", "🪙", ""), ("Silver", "⚪", ""),
     ("Bitcoin/USD", "⚡", "BTCUSD"), ("Ethereum/USD", "💎", "ETHUSD"),
     ("Apple", "🍎", ""), ("Google (Alphabet)", "🔍", ""), ("Facebook", "👤", ""), ("Amazon", "📦", ""),
